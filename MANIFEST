@@ -1,9 +1,11 @@
+csv/capability
+csv/device
+devices.pl
 lib/Mobile/Wurfl.pm
 Makefile.PL
 MANIFEST			This list of files
+META.yml			Module meta-data (added by MakeMaker)
 t/wurfl.t
 update.pl
 wurfl.cgi
-wurfl.csv.sql
-wurfl.sql
-META.yml                                 Module meta-data (added by MakeMaker)
+wurfl.sql.dump

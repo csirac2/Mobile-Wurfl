@@ -11,10 +11,32 @@ use warnings;
 use lib 'lib';
 use Mobile::Wurfl;
 
-my $wurfl = Mobile::Wurfl->new( verbose => 1 );
-$wurfl->rebuild_tables();
-# $wurfl->create_tables();
-# $wurfl->update();
+warn "create Mobile::Wurfl object\n";
+my $wurfl = Mobile::Wurfl->new();
+my $uas = do "/export/home/cdbi/cdbi/log/uas.pl";
+my $ua_env = do "/export/home/cdbi/cdbi/log/ua_env.pl";
+for my $ua ( keys %$uas )
+{
+    my $cua = $wurfl->canonical_ua( $ua );
+    if ( $cua ne $ua )
+    {
+        die "$ua\n$cua\n";
+        # print "$ua : $cua\n";
+    }
+    else
+    {
+        my $env = $ua_env->{$ua};
+        if ( $env )
+        {
+            print "Can't find $ua\n";
+            print map "\t$_ = $env->{$_}\n", keys %$env;
+        }
+        else
+        {
+            print "no env for $ua\n";
+        }
+    }
+}
 
 #------------------------------------------------------------------------------
 #

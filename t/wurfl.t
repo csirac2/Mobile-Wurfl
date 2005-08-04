@@ -38,20 +38,23 @@ unless ( -e $csv_dir )
 {
     ok( mkpath( $csv_dir ), "make csv dir" );
 }
-my $sql_file = "$wurfl_home/wurfl.csv.sql";
-ok( -e $sql_file, "sql file exists" );
 my %opts = (
     wurfl_home => $wurfl_home,
     db_descriptor => "DBI:CSV:f_dir=$csv_dir",
     # verbose => 1,
-    sql_file => $sql_file,
 );
-my $wurfl = eval { Mobile::Wurfl->new( %opts ); };
-warn $@ if $@;
-ok( ! $@ , "create Mobile::Wurfl object" );
+warn "\ntrying mysql version ...\n";
+my $wurfl = eval { Mobile::Wurfl->new( ); };
+if ( $@ )
+{
+    warn "\nfailed ($@) ... trying CSV version ...\n";
+    $wurfl ||= eval { Mobile::Wurfl->new( %opts ); };
+    warn $@ if $@;
+    ok( ! $@ , "create Mobile::Wurfl object" );
+}
 unless ( -e "$csv_dir/device" )
 {
-    eval { $wurfl->create_tables(); };
+    eval { $wurfl->create_tables( join( '', <DATA> ) ); };
     warn $@ if $@;
     ok( ! $@ , "create db tables" );
 }
@@ -79,6 +82,8 @@ my $cua = $wurfl->canonical_ua( $ua );
 is( $cua, "SonyEricssonZ600", "canonical ua" );
 my $deviceid = $wurfl->deviceid( $cua );
 is( $deviceid, "sonyericsson_z600_ver1", "deviceid" );
+my $device = $wurfl->device( $deviceid );
+is( $device->{id}, "sonyericsson_z600_ver1", "device" );
 my $max_image_width = $wurfl->lookup_value( $cua, "max_image_width" );
 ok( defined $max_image_width, "lookup_value returns defined value" );
 is( $max_image_width, 128, "lookup_value is correct" );
@@ -91,3 +96,18 @@ $row = $wurfl->lookup( $cua, "video" );
 is( $row->{deviceid}, "generic", "fallback to generic" );
 $row = $wurfl->lookup( $cua, "video", no_fall_back => 1 );
 is( $row->{deviceid}, undef, "no fallback" );
+
+__DATA__
+
+CREATE TABLE capability (
+  name char(100),
+  value char(100),
+  groupid char(100),
+  deviceid char(100)
+);
+CREATE TABLE device (
+  user_agent char(100),
+  actual_device_root char(100),
+  id char(100),
+  fall_back char(100)
+);
