@@ -1,6 +1,6 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 use strict;
 use warnings;
@@ -19,6 +19,7 @@ sub _touch( $$ )
 { 
     my $path = shift;
     my $time = shift;
+    print LOG "touch $path ($time)\n";
     return utime( $time, $time, $path );
 }
 
@@ -131,15 +132,14 @@ sub update
     my %opts = @_;
 
     print LOG "update wurfl ...\n";
-    unless ( $opts{force} )
-    {
-	return 0 unless $self->_needs_update();
-    }
+    my $update = $self->_needs_update();
+    return 0 unless $opts{force} || $update;
+    for ( qw( wurfl_url wurfl_file ) ) { die "no $_\n" unless $self->{$_}; }
     print LOG "getting $self->{wurfl_url} -> $self->{wurfl_file} ...\n";
     getstore( $self->{wurfl_url}, $self->{wurfl_file} ) 
         or die "can't get $self->{wurfl_url} -> $self->{wurfl_file}: $!\n"
     ;
-    _touch( $self->{wurfl_file}, $self->{modified_time} ) 
+    _touch( $self->{wurfl_file}, $self->{remote}{modified_time} ) 
         or die "can't touch $self->{wurfl_file}: $!\n"
     ;
     $self->rebuild_tables();
@@ -151,23 +151,21 @@ sub _needs_update
     my $self = shift;
     return 1 unless -e $self->{wurfl_file};
     print LOG "HEAD $self->{wurfl_url} ...\n";
-    my %remote;
-    @remote{qw( content_type document_length modified_time )} = 
+    @{$self->{remote}}{qw( content_type document_length modified_time )} = 
         head( $self->{wurfl_url} ) 
             or die "can't head $self->{wurfl_url}\n"
     ;
-    $self->{wurfl} = \%remote;
-    my %local;
-    @local{qw( document_length modified_time )} = ( stat $self->{wurfl_file} )[ 7, 9 ];
-    if ( 
-        $local{modified_time} == $remote{modified_time} &&
-        $local{document_length} == $remote{document_length} 
-    )
+    @{$self->{local}}{qw( document_length modified_time )} = ( stat $self->{wurfl_file} )[ 7,9 ];
+    for ( qw( document_length modified_time ) )
     {
-	print LOG "$self->{wurfl_file} is up to date ...\n";
-	return 0;
+        if ( $self->{local}{$_} != $self->{remote}{$_} )
+        {
+            print LOG "$self->{wurfl_file} needs updating: $_ ($self->{local}{$_} != $self->{remote}{$_}) ...\n";
+            return 1;
+        }
     }
-    return 1;
+    print LOG "$self->{wurfl_file} is up to date ...\n";
+    return 0;
 }
 
 sub rebuild_tables
@@ -304,7 +302,7 @@ sub device
     $self->_init();
     $self->{device_sth}->execute( $deviceid );
     my $device = $self->{device_sth}->fetchrow_hashref;
-    die "can't find device for user deviceid $deviceid\n" unless $device;
+    print LOG "can't find device for user deviceid $deviceid\n" unless $device;
     return $device;
 }
 
@@ -315,7 +313,7 @@ sub deviceid
     $self->_init();
     $self->{deviceid_sth}->execute( $ua );
     my $deviceid = $self->{deviceid_sth}->fetchrow;
-    die "can't find device id for user agent $ua\n" unless $deviceid;
+    print LOG "can't find device id for user agent $ua\n" unless $deviceid;
     return $deviceid;
 }
 
@@ -329,6 +327,7 @@ sub lookup
     die "$name is not a valid capability\n" unless $self->{capabilities}{$name};
     print LOG "user agent: $ua\n";
     my $deviceid = $self->deviceid( $ua );
+    return unless $deviceid;
     return 
         $opts{no_fall_back} ? 
             $self->_lookup( $deviceid, $name )
@@ -380,7 +379,7 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
     my $desc = $wurfl->get( 'db_descriptor' );
     $wurfl->set( wurfl_home => "/another/path" );
 
-    $wurfl->create_tables( "wurfl.sql" );
+    $wurfl->create_tables( $sql );
     $wurfl->update( force => 1 );
     $wurfl->rebuild_tables();
 
@@ -398,7 +397,7 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
         @capabilities = $wurfl->capabilities( $group );
     }
 
-    my $ua = $wurfl->canonical_ua( "MOT-V980M/80.2F.43I MIB/2.2.1 Profile/MIDP-2.0 Configuration/CLDC-1.1" );
+    my $ua = $wurfl->canonical_ua( "SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1" );
     my $deviceid = $wurfl->deviceid( $ua );
 
     my $wml_1_3 = $wurfl->lookup( $ua, "wml_1_3" );
