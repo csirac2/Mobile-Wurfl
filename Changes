@@ -1,0 +1,1 @@
+1.03 - changed canonical_ua to split on both "/" and whitespace.

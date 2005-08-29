@@ -1,6 +1,6 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.02';
+$VERSION = '1.03';
 
 use strict;
 use warnings;
@@ -9,6 +9,7 @@ use DBD::mysql;
 use File::Slurp;
 use XML::Simple;
 use LWP::Simple qw( head getstore );
+use Archive::Zip qw( :ERROR_CODES :CONSTANTS );
 
 my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
@@ -31,7 +32,7 @@ sub new
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.xml},
+        wurfl_url => q{http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.zip},
         verbose => 0,
         @_
     );
@@ -51,7 +52,6 @@ sub new
         $self->{db_password},
         { RaiseError => 1 }
     ) or die "Cannot connect to $self->{db_descriptor}: " . $DBI::errstr;
-    $self->{wurfl_file} = "$self->{wurfl_home}/wurfl.xml";
     return $self;
 }
 
@@ -131,17 +131,36 @@ sub update
     my $self = shift;
     my %opts = @_;
 
+    die "no wurfl_url\n" unless $self->{wurfl_url};
+    ( $self->{wurfl_file} ) = $self->{wurfl_url} =~ /([^\/?&=]+)$/;
+    die "can't glean wurfl_file from $self->{wurfl_url}\n" 
+        unless $self->{wurfl_file}
+    ;
     print LOG "update wurfl ...\n";
     my $update = $self->_needs_update();
     return 0 unless $opts{force} || $update;
-    for ( qw( wurfl_url wurfl_file ) ) { die "no $_\n" unless $self->{$_}; }
     print LOG "getting $self->{wurfl_url} -> $self->{wurfl_file} ...\n";
     getstore( $self->{wurfl_url}, $self->{wurfl_file} ) 
         or die "can't get $self->{wurfl_url} -> $self->{wurfl_file}: $!\n"
     ;
+    print LOG "content-type: $self->{remote}{content_type}\n";
     _touch( $self->{wurfl_file}, $self->{remote}{modified_time} ) 
         or die "can't touch $self->{wurfl_file}: $!\n"
     ;
+    if ( $self->{remote}{content_type} eq 'application/zip' )
+    {
+        print LOG "unzip $self->{wurfl_file} ...\n";
+        my $zip = Archive::Zip->new();
+        $zip->read( $self->{wurfl_file} ) == AZ_OK ||
+            die "read error for $self->{wurfl_file}: $!\n"
+        ;
+        my ( $wurfl_file ) = $zip->memberNames();
+        print LOG "extracting $wurfl_file ...\n";
+        $zip->extractMember( $wurfl_file ) == AZ_OK ||
+            die "filed to extract $wurfl_file\n"
+        ;
+        $self->{wurfl_file} = $wurfl_file;
+    }
     $self->rebuild_tables();
     return 1;
 }
@@ -283,16 +302,17 @@ sub canonical_ua
     $deviceid = $self->{deviceid_sth}->fetchrow;
     return $ua if $deviceid;
     print LOG "$ua not found ... \n";
-    my @ua = split "/", $ua;
-    if ( @ua <= 1 )
+    my $nua = $ua;
+    unless (
+        $nua =~ s/[\/\s][^\/\s]+$// &&
+        length $nua 
+    )
     {
         print LOG "can't find canonical user agent for $ua\n";
         return;
     }
-    pop( @ua );
-    $ua = join( "/", @ua );
-    print LOG "trying $ua\n";
-    return $self->canonical_ua( $ua );
+    print LOG "trying $nua\n";
+    return $self->canonical_ua( $nua );
 }
 
 sub device

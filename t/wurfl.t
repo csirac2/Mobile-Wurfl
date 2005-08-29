@@ -30,7 +30,7 @@ my $groups = [ qw(
     cache
 ) ];
 
-my $verbose = 0;
+my $verbose = 1;
 BEGIN { use_ok( 'Mobile::Wurfl' ); }
 require_ok( 'Mobile::Wurfl' );
 my $wurfl_home = "$Bin/..";
@@ -79,14 +79,23 @@ for my $group ( @groups )
 my @capabilities = $wurfl->capabilities();
 is_deeply( [ sort @capabilities ], [ sort keys %capabilities ], "capabilities list" );
 print STDERR "\ncanonical_ua ... ";
-my $ua = "SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1";
-my $cua = $wurfl->canonical_ua( $ua );
-is( $cua, "SonyEricssonK750i", "canonical ua" );
-my $deviceid = $wurfl->deviceid( $cua );
-is( $deviceid, "sonyericsson_k750i_ver1", "deviceid" );
-my $device = $wurfl->device( $deviceid );
-is( $device->{id}, "sonyericsson_k750i_ver1", "device" );
+my %ua = (
+    "SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1" => { cua => "SonyEricssonK750i", deviceid => "sonyericsson_k750i_ver1" },
+    "SonyEricssonT637/R101 Profile/MIDP-1.0 Configuration/CLDC-1.0 UP.Link/5.1.2.9" => { cua => 'SonyEricssonT637/R101 Profile/MIDP-1.0 Configuration/CLDC-1.0', deviceid => 'sonyericsson_t637_ver1_subr101' },
+);
+my $cua;
+for my $ua ( keys %ua )
+{
+    $cua = $wurfl->canonical_ua( $ua );
+    is( $cua, $ua{$ua}{cua}, "canonical ua" );
+    my $deviceid = $wurfl->deviceid( $cua );
+    is( $deviceid, $ua{$ua}{deviceid}, "deviceid" );
+    my $device = $wurfl->device( $deviceid );
+    is( $device->{id}, $ua{$ua}{deviceid}, "device" );
+}
 print STDERR "\nlookups ... ";
+$cua = $wurfl->canonical_ua( "SonyEricssonK750i" );
+my $deviceid = $wurfl->deviceid( $cua );
 my $resolution_width = $wurfl->lookup_value( $cua, "resolution_width" );
 ok( defined $resolution_width, "lookup_value returns defined value" );
 is( $resolution_width, 176, "lookup_value is correct" );
@@ -94,8 +103,8 @@ my $row = $wurfl->lookup( $cua, "resolution_width" );
 is( $row->{name}, "resolution_width", "test lookup (name)" );
 is( $row->{value}, $resolution_width, "test lookup (value)" );
 is( $row->{deviceid}, $deviceid, "test lookup (deviceid)" );
-is( $row->{groupid}, "display", "test lookup (groop)" );
-$ua = "SonyEricssonZ600";
+is( $row->{groupid}, "display", "test lookup (group)" );
+my $ua = "SonyEricssonZ600";
 $row = $wurfl->lookup( $ua, "video" );
 is( $row->{deviceid}, "generic", "fallback to generic" );
 $row = $wurfl->lookup( $ua, "video", no_fall_back => 1 );
