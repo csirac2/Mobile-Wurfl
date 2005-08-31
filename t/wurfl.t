@@ -82,6 +82,7 @@ print STDERR "\ncanonical_ua ... ";
 my %ua = (
     "SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1" => { cua => "SonyEricssonK750i", deviceid => "sonyericsson_k750i_ver1" },
     "SonyEricssonT637/R101 Profile/MIDP-1.0 Configuration/CLDC-1.0 UP.Link/5.1.2.9" => { cua => 'SonyEricssonT637/R101 Profile/MIDP-1.0 Configuration/CLDC-1.0', deviceid => 'sonyericsson_t637_ver1_subr101' },
+    "Mozilla/4.0 (compatible; MSIE 5.0; Symbian OS; UIQ; 316) Opera 6.31  [en]" => { cua => "Mozilla/4.0 (compatible; MSIE 5.0; Symbian OS", deviceid => "opera_symbian_ver1" },
 );
 my $cua;
 for my $ua ( keys %ua )

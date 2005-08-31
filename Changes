@@ -1,1 +1,2 @@
 1.03 - changed canonical_ua to split on both "/" and whitespace.
+1.04 - changed it again to try every substring.

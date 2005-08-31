@@ -1,6 +1,6 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.03';
+$VERSION = '1.04';
 
 use strict;
 use warnings;
@@ -297,22 +297,23 @@ sub canonical_ua
     my $self = shift;
     my $ua = shift;
     $self->_init();
-    my $deviceid ;
+    print LOG "trying $ua\n";
     $self->{deviceid_sth}->execute( $ua );
-    $deviceid = $self->{deviceid_sth}->fetchrow;
-    return $ua if $deviceid;
-    print LOG "$ua not found ... \n";
-    my $nua = $ua;
-    unless (
-        $nua =~ s/[\/\s][^\/\s]+$// &&
-        length $nua 
-    )
+    my $deviceid = $self->{deviceid_sth}->fetchrow;
+    if ( $deviceid )
     {
-        print LOG "can't find canonical user agent for $ua\n";
+        print LOG "$ua found\n";
+        return $ua;
+    }
+    print LOG "$ua not found ... \n";
+    $ua = substr( $ua, 0, -1 );
+    $ua =~ s/\s*$//;
+    unless ( length $ua )
+    {
+        print LOG "can't find canonical user agent\n";
         return;
     }
-    print LOG "trying $nua\n";
-    return $self->canonical_ua( $nua );
+    return $self->canonical_ua( $ua );
 }
 
 sub device
