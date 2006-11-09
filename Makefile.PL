@@ -2,7 +2,7 @@ use ExtUtils::MakeMaker;
 use File::Find;
 
 my $name = 'Mobile::Wurfl';
-my %module;
+my %prereq_pm;
 find(
     sub {
         return unless -f;
@@ -11,11 +11,14 @@ find(
         open( FH, $_ );
         for ( <FH> )
         {
-            $module{$1}++ if /(?:use|require)\s+([A-Z][A-Za-z0-9:]+)/;
+            $prereq_pm{$1} = 0
+                if /(?:use|require)\s+([A-Z][A-Za-z0-9:]+)/
+                && $1 ne $name
+            ;
         }
     }, "." 
 );
-%prereq_pm = map { $_ => 0 } grep { $_ ne $name } keys %module;
+warn "the following modules are required:\n", map "\t$_\n", sort keys %prereq_pm;
 WriteMakefile(
     'NAME'		=> $name,
     'VERSION_FROM'	=> 'lib/Mobile/Wurfl.pm',

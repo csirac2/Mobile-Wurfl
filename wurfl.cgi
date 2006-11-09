@@ -10,7 +10,6 @@
 use strict;
 use warnings;
 
-use lib 'lib';
 use Mobile::Wurfl;
 use CGI::Lite;
 

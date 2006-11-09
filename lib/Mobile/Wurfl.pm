@@ -1,28 +1,19 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.04';
+$VERSION = '1.05';
 
 use strict;
 use warnings;
 use DBI;
 use DBD::mysql;
-use File::Slurp;
-use XML::Simple;
-use LWP::Simple qw( head getstore );
-use Archive::Zip qw( :ERROR_CODES :CONSTANTS );
+use XML::Parser( Style => "Object" );
+use Array::Compare;
+require LWP::UserAgent;
 
 my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
     capability => [ qw( groupid name value deviceid ) ],
 );
-
-sub _touch( $$ ) 
-{ 
-    my $path = shift;
-    my $time = shift;
-    print LOG "touch $path ($time)\n";
-    return utime( $time, $time, $path );
-}
 
 sub new
 {
@@ -32,7 +23,7 @@ sub new
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.zip},
+        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
         verbose => 0,
         @_
     );
@@ -52,6 +43,12 @@ sub new
         $self->{db_password},
         { RaiseError => 1 }
     ) or die "Cannot connect to $self->{db_descriptor}: " . $DBI::errstr;
+    die "no wurfl_url\n" unless $self->{wurfl_url};
+    ( $self->{wurfl_file} ) = $self->{wurfl_url} =~ /([^\/?&=]+)$/;
+    die "can't glean wurfl_file from $self->{wurfl_url}\n" 
+        unless $self->{wurfl_file}
+    ;
+    $self->{ua} = LWP::UserAgent->new;
     return $self;
 }
 
@@ -67,6 +64,12 @@ sub _init
             die "table $_ doesn't exist on $self->{db_descriptor}: try running $self->create_tables()\n";
         }
     }
+    $self->{last_update_sth} = $self->{dbh}->prepare( 
+        "SELECT UNIX_TIMESTAMP( ts ) FROM device ORDER BY ts DESC LIMIT 1"
+    );
+    $self->{user_agents_sth} = $self->{dbh}->prepare( 
+        "SELECT DISTINCT user_agent FROM device" 
+    );
     $self->{devices_sth} = $self->{dbh}->prepare( 
         "SELECT * FROM device" 
     );
@@ -82,16 +85,24 @@ sub _init
     $self->{fall_back_sth} = $self->{dbh}->prepare(
         "SELECT fall_back FROM device WHERE id = ?"
     );
-    my $sth = $self->{dbh}->prepare( 
-        "SELECT name, groupid FROM capability WHERE deviceid = 'generic'"
+    $self->{groups_sth} = $self->{dbh}->prepare(
+        "SELECT DISTINCT groupid FROM capability"
     );
-    $sth->execute();
-    while ( my ( $name, $group ) = $sth->fetchrow() )
+    $self->{group_capabilities_sth} = $self->{dbh}->prepare(
+        "SELECT DISTINCT name FROM capability WHERE groupid = ?"
+    );
+    $self->{capabilities_sth} = $self->{dbh}->prepare(
+        "SELECT DISTINCT name FROM capability"
+    );
+    for my $table ( keys %tables )
     {
-        $self->{groups}{$group}{$name}++;
-        $self->{capabilities}{$name}++ ;
+	next if $self->{$table}{sth};
+        my @fields = @{$tables{$table}};
+        my $fields = join( ",", @fields );
+        my $placeholders = join( ",", map "?", @fields );
+        my $sql = "INSERT INTO $table ( $fields ) VALUES ( $placeholders ) ";
+        $self->{$table}{sth} = $self->{dbh}->prepare( $sql );
     }
-    $sth->finish();
     $self->{initialised} = 1;
 }
 
@@ -121,120 +132,141 @@ sub create_tables
     for my $statement ( split( /\s*;\s*/, $sql ) )
     {
         next unless $statement =~ /\S/;
-        print LOG "STATEMENT: $statement\n";
         $self->{dbh}->do( $statement );
     }
 }
 
-sub update
-{
-    my $self = shift;
-    my %opts = @_;
-
-    die "no wurfl_url\n" unless $self->{wurfl_url};
-    ( $self->{wurfl_file} ) = $self->{wurfl_url} =~ /([^\/?&=]+)$/;
-    die "can't glean wurfl_file from $self->{wurfl_url}\n" 
-        unless $self->{wurfl_file}
-    ;
-    print LOG "update wurfl ...\n";
-    my $update = $self->_needs_update();
-    return 0 unless $opts{force} || $update;
-    print LOG "getting $self->{wurfl_url} -> $self->{wurfl_file} ...\n";
-    getstore( $self->{wurfl_url}, $self->{wurfl_file} ) 
-        or die "can't get $self->{wurfl_url} -> $self->{wurfl_file}: $!\n"
-    ;
-    print LOG "content-type: $self->{remote}{content_type}\n";
-    _touch( $self->{wurfl_file}, $self->{remote}{modified_time} ) 
-        or die "can't touch $self->{wurfl_file}: $!\n"
-    ;
-    if ( $self->{remote}{content_type} eq 'application/zip' )
-    {
-        print LOG "unzip $self->{wurfl_file} ...\n";
-        my $zip = Archive::Zip->new();
-        $zip->read( $self->{wurfl_file} ) == AZ_OK ||
-            die "read error for $self->{wurfl_file}: $!\n"
-        ;
-        my ( $wurfl_file ) = $zip->memberNames();
-        print LOG "extracting $wurfl_file ...\n";
-        $zip->extractMember( $wurfl_file ) == AZ_OK ||
-            die "filed to extract $wurfl_file\n"
-        ;
-        $self->{wurfl_file} = $wurfl_file;
-    }
-    $self->rebuild_tables();
-    return 1;
+sub touch( $$ ) 
+{ 
+    my $path = shift;
+    my $time = shift;
+    die "no path" unless $path;
+    die "no time" unless $time;
+    print LOG "touch $path ($time)\n";
+    return utime( $time, $time, $path );
 }
 
-sub _needs_update
+sub last_update
 {
     my $self = shift;
-    return 1 unless -e $self->{wurfl_file};
-    print LOG "HEAD $self->{wurfl_url} ...\n";
-    @{$self->{remote}}{qw( content_type document_length modified_time )} = 
-        head( $self->{wurfl_url} ) 
-            or die "can't head $self->{wurfl_url}\n"
-    ;
-    @{$self->{local}}{qw( document_length modified_time )} = ( stat $self->{wurfl_file} )[ 7,9 ];
-    for ( qw( document_length modified_time ) )
-    {
-        if ( $self->{local}{$_} != $self->{remote}{$_} )
-        {
-            print LOG "$self->{wurfl_file} needs updating: $_ ($self->{local}{$_} != $self->{remote}{$_}) ...\n";
-            return 1;
-        }
-    }
-    print LOG "$self->{wurfl_file} is up to date ...\n";
-    return 0;
+    $self->_init();
+    $self->{last_update_sth}->execute();
+    my ( $ts ) = $self->{last_update_sth}->fetchrow();
+    $ts ||= 0;
+    print LOG "last update: $ts\n";
+    return $ts;
 }
 
 sub rebuild_tables
 {
     my $self = shift;
 
-    print LOG "parse $self->{wurfl_file} ...\n";
-    my $wurfl = XMLin( $self->{wurfl_file}, keyattr => [], forcearray => 1, ) 
-        or die "Can't parse $self->{wurfl_file}\n"
-    ;
+    my $local = $self->get_local_stats();
+    my $last_update = $self->last_update();
+    if ( $local <= $last_update )
+    {
+        print LOG "$self->{wurfl_file} has not changed since the last database update\n";
+        return 0;
+    }
+    print LOG "$self->{wurfl_file} is newer than the last database update\n";
     print LOG "flush dB tables ...\n";
     $self->{dbh}->do( "DELETE FROM device" );
     $self->{dbh}->do( "DELETE FROM capability" );
-    $self->_create_sths();
-    my $devices = $wurfl->{devices}[0]{device};
-    for my $device ( @$devices )
-    {
-        print LOG "$device->{id}\n";
-        $self->{device}{sth}->execute( @$device{ @{$tables{device}} } );
-        if ( my $group = $device->{group} )
-        {
-            foreach my $g ( @$group )
-            {
-                foreach my $capability ( @{$g->{capability}} )
+    my ( $device_id, $group_id );
+    my $xp = new XML::Parser(
+        Handlers => {
+            Start => sub { 
+                my ( $expat, $element, %attrs ) = @_;
+                if ( $element eq 'group' )
                 {
-                    $capability->{groupid} = $g->{id};
-                    $capability->{deviceid} = $device->{id};
-                    $self->{capability}{sth}->execute( 
-                        @$capability{ @{$tables{capability}} } 
-                    );
+                    my %group = %attrs;
+                    $group_id = $group{id};
                 }
-            }
+                if ( $element eq 'device' )
+                {
+                    my %device = %attrs;
+                    my @keys = @{$tables{device}};
+                    my @values = @device{@keys};
+                    $device_id = $device{id};
+                    $self->{device}{sth}->execute( @values );
+                }
+                if ( $element eq 'capability' )
+                {
+                    my %capability = %attrs;
+                    my @keys = @{$tables{capability}};
+                    $capability{deviceid} = $device_id;
+                    $capability{groupid} = $group_id;
+                    my @values = @capability{@keys};
+                    $self->{capability}{sth}->execute( @values );
+                }
+            },
         }
-    }
+    );
+    $xp->parsefile( $self->{wurfl_file} );
+    return 1;
 }
 
-sub _create_sths
+sub update
 {
     my $self = shift;
+    my $got_wurfl = $self->get_wurfl();
+    print LOG "got wurfl: $got_wurfl\n";
+    my $rebuilt ||= $self->rebuild_tables();
+    print LOG "rebuilt: $rebuilt\n";
+    return $got_wurfl || $rebuilt;
+}
 
-    for my $table ( keys %tables )
+sub get_local_stats
+{
+    my $self = shift;
+    return ( 0, 0 ) unless -e $self->{wurfl_file};
+    print LOG "stat $self->{wurfl_file} ...\n";
+    my @stat = ( stat $self->{wurfl_file} )[ 7,9 ];
+    print LOG "@stat\n";
+    return @stat;
+}
+
+sub get_remote_stats
+{
+    my $self = shift;
+    print LOG "HEAD $self->{wurfl_url} ...\n";
+    my $response = $self->{ua}->head( $self->{wurfl_url} );
+    die $response->status_line unless $response->is_success;
+    die "can't get content_length\n" unless $response->content_length;
+    die "can't get last_modified\n" unless $response->last_modified;
+    my @stat = ( $response->content_length, $response->last_modified );
+    print LOG "@stat\n";
+    return @stat;
+}
+
+sub get_wurfl
+{
+    my $self = shift;
+    my @local = $self->get_local_stats();
+    my @remote = $self->get_remote_stats();
+    my $comp = Array::Compare->new();
+    if ( $comp->compare( \@local, \@remote ) )
     {
-	next if $self->{$table}{sth};
-        my @fields = @{$tables{$table}};
-        my $fields = join( ",", @fields );
-        my $placeholders = join( ",", map "?", @fields );
-        my $sql = "INSERT INTO $table ( $fields ) VALUES ( $placeholders ) ";
-        print LOG "$sql\n";
-        $self->{$table}{sth} = $self->{dbh}->prepare( $sql );
+        print LOG "@local and @remote are the same\n";
+        return 0;
     }
+    print LOG "@local and @remote are different\n";
+    print LOG "GET $self->{wurfl_url} -> $self->{wurfl_file} ...\n";
+    my $response = $self->{ua}->get( 
+        $self->{wurfl_url},
+        ':content_file' => $self->{wurfl_file}
+    );
+    die $response->status_line unless $response->is_success;
+    touch( $self->{wurfl_file}, $remote[1] );
+    return 1;
+}
+
+sub user_agents
+{
+    my $self = shift;
+    $self->_init();
+    $self->{user_agents_sth}->execute();
+    return map $_->[0], @{$self->{user_agents_sth}->fetchall_arrayref()};
 }
 
 sub devices
@@ -249,7 +281,8 @@ sub groups
 {
     my $self = shift;
     $self->_init();
-    return keys %{$self->{groups}};
+    $self->{groups_sth}->execute();
+    return map $_->[0], @{$self->{groups_sth}->fetchall_arrayref()};
 }
 
 sub capabilities
@@ -259,9 +292,11 @@ sub capabilities
     $self->_init();
     if ( $group )
     {
-        return keys %{$self->{groups}{$group}};
+        $self->{group_capabilities_sth}->execute( $group );
+        return map $_->[0], @{$self->{group_capabilities_sth}->fetchall_arrayref()};
     }
-    return keys %{$self->{capabilities}};
+    $self->{capabilities_sth}->execute();
+    return map $_->[0], @{$self->{capabilities_sth}->fetchall_arrayref()};
 }
 
 sub _lookup
@@ -269,6 +304,7 @@ sub _lookup
     my $self = shift;
     my $deviceid = shift;
     my $name = shift;
+    $self->_init();
     $self->{lookup_sth}->execute( $name, $deviceid );
     return $self->{lookup_sth}->fetchrow_hashref;
 }
@@ -278,9 +314,9 @@ sub _fallback
     my $self = shift;
     my $deviceid = shift;
     my $name = shift;
+    $self->_init();
     my $row = $self->_lookup( $deviceid, $name );
     return $row if $row && ( $row->{value} || $row->{deviceid} eq 'generic' );
-    print LOG "can't find $name for $deviceid ... trying fallback ...\n";
     $self->{fall_back_sth}->execute( $deviceid );
     my $fallback = $self->{fall_back_sth}->fetchrow 
         || die "no fallback for $deviceid\n"
@@ -297,7 +333,6 @@ sub canonical_ua
     my $self = shift;
     my $ua = shift;
     $self->_init();
-    print LOG "trying $ua\n";
     $self->{deviceid_sth}->execute( $ua );
     my $deviceid = $self->{deviceid_sth}->fetchrow;
     if ( $deviceid )
@@ -305,7 +340,6 @@ sub canonical_ua
         print LOG "$ua found\n";
         return $ua;
     }
-    print LOG "$ua not found ... \n";
     $ua = substr( $ua, 0, -1 );
     $ua =~ s/\s*$//;
     unless ( length $ua )
@@ -343,10 +377,8 @@ sub lookup
     my $self = shift;
     my $ua = shift;
     my $name = shift;
-    my %opts = @_;
     $self->_init();
-    die "$name is not a valid capability\n" unless $self->{capabilities}{$name};
-    print LOG "user agent: $ua\n";
+    my %opts = @_;
     my $deviceid = $self->deviceid( $ua );
     return unless $deviceid;
     return 
@@ -360,6 +392,7 @@ sub lookup
 sub lookup_value
 {
     my $self = shift;
+    $self->_init();
     my $row = $self->lookup( @_ );
     return $row ? $row->{value} : undef;
 }
@@ -367,12 +400,19 @@ sub lookup_value
 sub cleanup
 {
     my $self = shift;
+    print LOG "cleanup ...\n";
     if ( $self->{dbh} )
     {
-        $self->{dbh}->do( "DROP TABLE $_" ) for keys %tables;
+        print LOG "drop tables\n";
+        for ( keys %tables )
+        {
+            print LOG "DROP TABLE IF EXISTS $_\n";
+            $self->{dbh}->do( "DROP TABLE IF EXISTS $_" );
+        }
     }
     return unless $self->{wurfl_file};
     return unless -e $self->{wurfl_file};
+    print LOG "unlink $self->{wurfl_file}\n";
     unlink $self->{wurfl_file} || die "Can't remove $self->{wurfl_file}: $!\n";
 }
 
@@ -393,7 +433,7 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.xml},
+        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
         verbose => 1,
     );
 
@@ -401,7 +441,8 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
     $wurfl->set( wurfl_home => "/another/path" );
 
     $wurfl->create_tables( $sql );
-    $wurfl->update( force => 1 );
+    $wurfl->update();
+    $wurfl->get_wurfl();
     $wurfl->rebuild_tables();
 
     my @devices = $wurfl->devices();
@@ -448,7 +489,7 @@ The Mobile::Wurfl constructor takes an optional list of named options; e.g.:
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.xml},
+        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
         verbose => 1,
     );
 
@@ -493,13 +534,17 @@ The set and get methods can be used to set / get values for the constructor opti
 
 The create_tables method is used to create the database tables required for Mobile::Wurfl to store the wurfl.xml data in. It can be passed as an argument a string containing appropriate SQL "CREATE TABLE" statements. If this is not passed, it uses appropriate statements for a mysql database (see __DATA__ section of the module for the specifics). This should only need to be called as part of the initial configuration.
 
-=head2 update( [ force => 1 ] )
+=head2 update
 
-The update method is called to update the database tables with the latest information from wurfl.xml. It first checks to see if the locally cached version of the wurfl.xml file is up to date by doing a HEAD request on the WURFL URL, and comparing modification times. If there is a newer version of the file at the WURFL URL, or if the locally cached file does not exist, then the module will GET the wurfl.xml file from the WURFL URL. If this has been done, the module will parse the wurfl.xml file, and populate the database with the new data. The update method can be passed a "force" option, which will force the wurfl.xml file to be fetched and the database tables re-populated even if the WURFL URL is not newer than the locally cached copy.
+The update method is called to update the database tables with the latest information from wurfl.xml. It calls get_wurfl, and then rebuild_tables, each of which work out what if anything needs to be done (see below). It returns true if there has been an update, and false otherwise.
 
 =head2 rebuild_tables
 
-The rebuild_tables method is called by the update method if the WURFL URL is more recent than the locally cached copy of wurfl.xml. It can also be called directly if you wish to re-parse the wurfl.xml file and rebuild the database tables without checking (and possibly retrieving) the WURFL URL.
+The rebuild_tables method is called by the update method. It checks the modification time of the locally cached copy of the wurfl.xml file against the last modification time on the database, and if it is greater, rebuilds the database table from the wurfl.xml file.
+
+=head2 get_wurfl
+
+The get_wurfl method is called by the update method. It checks to see if the locally cached version of the wurfl.xml file is up to date by doing a HEAD request on the WURFL URL, and comparing modification times. If there is a newer version of the file at the WURFL URL, or if the locally cached file does not exist, then the module will GET the wurfl.xml file from the WURFL URL.
 
 =head2 devices
 
@@ -590,10 +635,11 @@ __DATA__
 
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
-  name varchar(100) NOT NULL default '',
-  value varchar(100) default '',
-  groupid varchar(100) NOT NULL default '',
-  deviceid varchar(100) NOT NULL default '',
+  name varchar(255) NOT NULL default '',
+  value varchar(255) default '',
+  groupid varchar(255) NOT NULL default '',
+  deviceid varchar(255) NOT NULL default '',
+  ts timestamp NOT NULL,
   KEY groupid (groupid),
   KEY name_deviceid (name,deviceid)
 ) TYPE=InnoDB;
@@ -604,10 +650,11 @@ CREATE TABLE capability (
 
 DROP TABLE IF EXISTS device;
 CREATE TABLE device (
-  user_agent varchar(100) NOT NULL default '',
+  user_agent varchar(255) NOT NULL default '',
   actual_device_root enum('true','false') default 'false',
-  id varchar(100) NOT NULL default '',
-  fall_back varchar(100) NOT NULL default '',
+  id varchar(255) NOT NULL default '',
+  fall_back varchar(255) NOT NULL default '',
+  ts timestamp NOT NULL,
   KEY user_agent (user_agent),
   KEY id (id)
 ) TYPE=InnoDB;
