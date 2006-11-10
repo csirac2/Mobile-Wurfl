@@ -1,6 +1,6 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.05';
+$VERSION = '1.06';
 
 use strict;
 use warnings;
@@ -9,6 +9,8 @@ use DBD::mysql;
 use XML::Parser( Style => "Object" );
 use Array::Compare;
 require LWP::UserAgent;
+use Template;
+use File::Spec;
 
 my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
@@ -23,21 +25,27 @@ sub new
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
+        device_table_name => 'device',
+        capability_table_name => 'capability',
         wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
         verbose => 0,
         @_
     );
     my $self = bless \%opts, $class;
-    if ( $self->{verbose} )
+    if ( ! $self->{verbose} )
     {
-        open( LOG, ">&STDERR" );
+        open( LOG, ">" . File::Spec->devnull() )
     }
-    else
+    elsif ( $self->{verbose} == 1 )
     {
         open( LOG, ">$self->{wurfl_home}/wurfl.log" );
     }
+    else
+    {
+        open( LOG, ">&STDERR" );
+    }
     print LOG "connecting to $self->{db_descriptor} as $self->{db_username}\n";
-    $self->{dbh} = DBI->connect( 
+    $self->{dbh} ||= DBI->connect( 
         $self->{db_descriptor},
         $self->{db_username},
         $self->{db_password},
@@ -65,34 +73,34 @@ sub _init
         }
     }
     $self->{last_update_sth} = $self->{dbh}->prepare( 
-        "SELECT UNIX_TIMESTAMP( ts ) FROM device ORDER BY ts DESC LIMIT 1"
+        "SELECT UNIX_TIMESTAMP( ts ) FROM $self->{device_table_name} ORDER BY ts DESC LIMIT 1"
     );
     $self->{user_agents_sth} = $self->{dbh}->prepare( 
-        "SELECT DISTINCT user_agent FROM device" 
+        "SELECT DISTINCT user_agent FROM $self->{device_table_name}" 
     );
     $self->{devices_sth} = $self->{dbh}->prepare( 
-        "SELECT * FROM device" 
+        "SELECT * FROM $self->{device_table_name}" 
     );
     $self->{device_sth} = $self->{dbh}->prepare( 
-        "SELECT * FROM device WHERE id = ?"
+        "SELECT * FROM $self->{device_table_name} WHERE id = ?"
     );
     $self->{deviceid_sth} = $self->{dbh}->prepare( 
-        "SELECT id FROM device WHERE user_agent = ?"
+        "SELECT id FROM $self->{device_table_name} WHERE user_agent = ?"
     );
     $self->{lookup_sth} = $self->{dbh}->prepare(
-        "SELECT * FROM capability WHERE name = ? AND deviceid = ?"
+        "SELECT * FROM $self->{capability_table_name} WHERE name = ? AND deviceid = ?"
     );
     $self->{fall_back_sth} = $self->{dbh}->prepare(
-        "SELECT fall_back FROM device WHERE id = ?"
+        "SELECT fall_back FROM $self->{device_table_name} WHERE id = ?"
     );
     $self->{groups_sth} = $self->{dbh}->prepare(
-        "SELECT DISTINCT groupid FROM capability"
+        "SELECT DISTINCT groupid FROM $self->{capability_table_name}"
     );
     $self->{group_capabilities_sth} = $self->{dbh}->prepare(
-        "SELECT DISTINCT name FROM capability WHERE groupid = ?"
+        "SELECT DISTINCT name FROM $self->{capability_table_name} WHERE groupid = ?"
     );
     $self->{capabilities_sth} = $self->{dbh}->prepare(
-        "SELECT DISTINCT name FROM capability"
+        "SELECT DISTINCT name FROM $self->{capability_table_name}"
     );
     for my $table ( keys %tables )
     {
@@ -128,7 +136,13 @@ sub get
 sub create_tables
 {
     my $self = shift;
-    my $sql = shift || join( '', <DATA> );
+    my $sql = shift;
+    unless ( $sql )
+    {
+        my $tt = Template->new();
+        my $template = join( '', <DATA> );
+        $tt->process( \$template, $self, \$sql ) or die $tt->error;
+    }
     for my $statement ( split( /\s*;\s*/, $sql ) )
     {
         next unless $statement =~ /\S/;
@@ -170,8 +184,8 @@ sub rebuild_tables
     }
     print LOG "$self->{wurfl_file} is newer than the last database update\n";
     print LOG "flush dB tables ...\n";
-    $self->{dbh}->do( "DELETE FROM device" );
-    $self->{dbh}->do( "DELETE FROM capability" );
+    $self->{dbh}->do( "DELETE FROM $self->{device_table_name}" );
+    $self->{dbh}->do( "DELETE FROM $self->{capability_table_name}" );
     my ( $device_id, $group_id );
     my $xp = new XML::Parser(
         Handlers => {
@@ -433,9 +447,11 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
-        verbose => 1,
+        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml}
     );
+
+    my $dbh = DBI->connect( $db_descriptor, $db_username, $db_password );
+    my $wurfl = Mobile::Wurfl->new( dbh => $dbh );
 
     my $desc = $wurfl->get( 'db_descriptor' );
     $wurfl->set( wurfl_home => "/another/path" );
@@ -513,13 +529,17 @@ The username used to connect to the database defined by L</METHODS/new/db_descri
 
 The password used to connect to the database defined by L</METHODS/new/db_descriptor>. Default is "wurfl".
 
+=item dbh
+
+A DBI database handle.
+
 =item wurfl_url
 
 The URL from which to get the wurfl.xml file. Default is L<http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.xml>.
 
 =item verbose
 
-If set to a true value, various status messages will be output to STDERR. If false, these messages will be written to a logfile called wurfl.log in L</METHODS/new/wurfl_home>.
+If set to a true value, various status messages will be output. If value is 1, these messages will be written to a logfile called wurfl.log in L</METHODS/new/wurfl_home>, if > 1 to STDERR.
 
 =back
 
@@ -623,18 +643,8 @@ itself.
 
 __DATA__
 
-# MySQL dump 8.16
-#
-# Host: localhost    Database: wurfl
-#--------------------------------------------------------
-# Server version	4.0.21-max
-
-#
-# Table structure for table 'capability'
-#
-
-DROP TABLE IF EXISTS capability;
-CREATE TABLE capability (
+DROP TABLE IF EXISTS [% capability_table_name %];
+CREATE TABLE [% capability_table_name %] (
   name varchar(255) NOT NULL default '',
   value varchar(255) default '',
   groupid varchar(255) NOT NULL default '',
@@ -644,12 +654,8 @@ CREATE TABLE capability (
   KEY name_deviceid (name,deviceid)
 ) TYPE=InnoDB;
 
-#
-# Table structure for table 'device'
-#
-
-DROP TABLE IF EXISTS device;
-CREATE TABLE device (
+DROP TABLE IF EXISTS [% device_table_name %];
+CREATE TABLE [% device_table_name %] (
   user_agent varchar(255) NOT NULL default '',
   actual_device_root enum('true','false') default 'false',
   id varchar(255) NOT NULL default '',

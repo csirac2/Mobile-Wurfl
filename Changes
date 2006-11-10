@@ -1,3 +1,4 @@
 1.03 - changed canonical_ua to split on both "/" and whitespace.
 1.04 - changed it again to try every substring.
 1.05 - re-wrote update and tests, now uses XML::Parser and LWP::UserAgent
+1.06 - added verbose levels, dbh option, and table name options

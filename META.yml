@@ -1,7 +1,7 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         Mobile-Wurfl
-version:      1.05
+version:      1.06
 version_from: lib/Mobile/Wurfl.pm
 installdirs:  site
 requires:
@@ -13,8 +13,10 @@ requires:
     ExtUtils::MakeMaker:           0
     File::Find:                    0
     File::Path:                    0
+    File::Spec:                    0
     FindBin:                       0
     LWP::UserAgent:                0
+    Template:                      0
     Test::More:                    0
     XML::Parser:                   0
 
