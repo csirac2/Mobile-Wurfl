@@ -2,3 +2,4 @@
 1.04 - changed it again to try every substring.
 1.05 - re-wrote update and tests, now uses XML::Parser and LWP::UserAgent
 1.06 - added verbose levels, dbh option, and table name options
+1.07 - various bug fixes submitted by Ian Shrimpton [ian@persistentmobile.com]

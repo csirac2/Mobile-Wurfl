@@ -1,16 +1,18 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.06';
+$VERSION = '1.07';
 
 use strict;
 use warnings;
 use DBI;
 use DBD::mysql;
 use XML::Parser( Style => "Object" );
-use Array::Compare;
 require LWP::UserAgent;
 use Template;
 use File::Spec;
+use File::Basename;
+use IO::Uncompress::Unzip qw(unzip $UnzipError);;
+use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 
 my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
@@ -27,10 +29,11 @@ sub new
         db_password => 'wurfl',
         device_table_name => 'device',
         capability_table_name => 'capability',
-        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
+        wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},
         verbose => 0,
         @_
     );
+
     my $self = bless \%opts, $class;
     if ( ! $self->{verbose} )
     {
@@ -52,25 +55,34 @@ sub new
         { RaiseError => 1 }
     ) or die "Cannot connect to $self->{db_descriptor}: " . $DBI::errstr;
     die "no wurfl_url\n" unless $self->{wurfl_url};
-    ( $self->{wurfl_file} ) = $self->{wurfl_url} =~ /([^\/?&=]+)$/;
-    die "can't glean wurfl_file from $self->{wurfl_url}\n" 
-        unless $self->{wurfl_file}
-    ;
+
+    #get a filename from the URL and remove .zip or .gzip suffix
+    my $name = (fileparse($self->{wurfl_url}, '.zip', '.gzip'))[0];
+    $self->{wurfl_file} = "$self->{wurfl_home}/$name";
+
     $self->{ua} = LWP::UserAgent->new;
     return $self;
+}
+
+sub _tables_exist
+{
+    my $self = shift;
+    my @db_tables = $self->{dbh}->tables();
+    my %db_tables = map { $_ => 1 } $self->{dbh}->tables();
+    for ( keys %tables )
+    {
+        return 0 unless $db_tables{"`$_`"};
+    }
+    return 1;
 }
 
 sub _init
 {
     my $self = shift;
     return if $self->{initialised};
-    for ( keys %tables )
+    if ( ! $self->_tables_exist() )
     {
-        eval { $self->{dbh}->do( "SELECT * FROM $_" ); };
-        if ( $@ )
-        {
-            die "table $_ doesn't exist on $self->{db_descriptor}: try running $self->create_tables()\n";
-        }
+        die "tables don't exist on $self->{db_descriptor}: try running $self->create_tables()\n";
     }
     $self->{last_update_sth} = $self->{dbh}->prepare( 
         "SELECT UNIX_TIMESTAMP( ts ) FROM $self->{device_table_name} ORDER BY ts DESC LIMIT 1"
@@ -137,6 +149,7 @@ sub create_tables
 {
     my $self = shift;
     my $sql = shift;
+    return if $self->_tables_exist();
     unless ( $sql )
     {
         my $tt = Template->new();
@@ -175,7 +188,7 @@ sub rebuild_tables
 {
     my $self = shift;
 
-    my $local = $self->get_local_stats();
+    my $local = ($self->get_local_stats())[1];
     my $last_update = $self->last_update();
     if ( $local <= $last_update )
     {
@@ -258,19 +271,32 @@ sub get_wurfl
     my $self = shift;
     my @local = $self->get_local_stats();
     my @remote = $self->get_remote_stats();
-    my $comp = Array::Compare->new();
-    if ( $comp->compare( \@local, \@remote ) )
+ 
+    if ( $local[1] == $remote[1] )
     {
         print LOG "@local and @remote are the same\n";
         return 0;
     }
     print LOG "@local and @remote are different\n";
     print LOG "GET $self->{wurfl_url} -> $self->{wurfl_file} ...\n";
+
+    #create a temp filename
+    my $tempfile = "$self->{wurfl_home}/wurfl_$$";
+    
     my $response = $self->{ua}->get( 
         $self->{wurfl_url},
-        ':content_file' => $self->{wurfl_file}
+        ':content_file' => $tempfile
     );
     die $response->status_line unless $response->is_success;
+    if ($response->{_headers}->header('content-type') eq 'application/x-gzip') {
+        gunzip($tempfile => $self->{wurfl_file}) || die "gunzip failed: $GunzipError\n";
+        unlink($tempfile);
+    } elsif ($response->{_headers}->header('content-type') eq 'application/zip') {
+        unzip($tempfile => $self->{wurfl_file}) || die "unzip failed: $UnzipError\n";
+        unlink($tempfile);
+    } else {
+        move($tempfile, $self->{wurfl_file});
+    }
     touch( $self->{wurfl_file}, $remote[1] );
     return 1;
 }
@@ -355,7 +381,7 @@ sub canonical_ua
         return $ua;
     }
     $ua = substr( $ua, 0, -1 );
-    $ua =~ s/\s*$//;
+    # $ua =~ s/^(.+)\/(.*)$/$1\// ;
     unless ( length $ua )
     {
         print LOG "can't find canonical user agent\n";
@@ -447,7 +473,7 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml}
+        wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},
     );
 
     my $dbh = DBI->connect( $db_descriptor, $db_username, $db_password );
@@ -488,7 +514,7 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
 
 Mobile::Wurfl is a perl module that provides an interface to mobile device information represented in wurfl (L<http://wurfl.sourceforge.net/>). The Mobile::Wurfl module works by saving this device information in a database (preferably mysql). 
 
-It offers an interface to create the relevant database tables from a SQL file containing "CREATE TABLE" statements (a sample is provided with the distribution). It also provides a method for updating the data in the database from the wurfl.xml file hosted at L<http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.xml>. 
+It offers an interface to create the relevant database tables from a SQL file containing "CREATE TABLE" statements (a sample is provided with the distribution). It also provides a method for updating the data in the database from the wurfl.xml file hosted at L<http://kent.dl.sourceforge.net/sourceforge/wurfl/wurfl-latest.xml.gz>. 
 
 It provides methods to query the database for lists of capabilities, and groups of capabilities. It also provides a method for generating a "canonical" user agent string (see L</canonical_ua>). 
 
@@ -505,7 +531,7 @@ The Mobile::Wurfl constructor takes an optional list of named options; e.g.:
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
-        wurfl_url => q{http://wurfl.sourceforge.net/wurfl.xml},
+        wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},,
         verbose => 1,
     );
 
@@ -535,7 +561,7 @@ A DBI database handle.
 
 =item wurfl_url
 
-The URL from which to get the wurfl.xml file. Default is L<http://www.nusho.it/wurfl/dl.php?t=d&f=wurfl.xml>.
+The URL from which to get the wurfl.xml file, this can be uncompressed or compressed with zip or gzip Default is L<http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download>.
 
 =item verbose
 
