@@ -5,6 +5,9 @@ use Test::More qw( no_plan );
 use FindBin qw( $Bin );
 use Data::Dumper;
 use File::Path;
+use DBD::SQLite;
+use DBI;
+
 use lib 'lib';
 
 my $groups = [ sort qw(
@@ -29,44 +32,50 @@ my $groups = [ sort qw(
     mms
     cache
 ) ];
+my $create_sql = <<EOF;
+DROP TABLE IF EXISTS capability;
+CREATE TABLE capability (
+        name char(255) NOT NULL default '',
+        value char(255) default '',
+        groupid char(255) NOT NULL default '',
+        deviceid char(255) NOT NULL default '',
+        ts DATETIME default CURRENT_TIMESTAMP
+        );
+CREATE INDEX IF NOT EXISTS groupid ON capability (groupid);
+CREATE INDEX IF NOT EXISTS name_deviceid ON capability (name,deviceid);
+DROP TABLE IF EXISTS device;
+CREATE TABLE device (
+        user_agent varchar(255) NOT NULL default '',
+        actual_device_root char(255),
+        id char(255) NOT NULL default '',
+        fall_back char(255) NOT NULL default '',
+        ts DATETIME default CURRENT_TIMESTAMP
+        );
+CREATE INDEX IF NOT EXISTS user_agent ON device (user_agent);
+CREATE INDEX IF NOT EXISTS id ON device (id);
+EOF
+
 
 $| = 1;
-my $wurfl;
-my %db = (
-    database => "wurfl",
-    username => "wurfl",
-    password => "wurfl",
-    cleanup => "no",
-);
-print STDERR "\n\nMobile::Wurfl requires a mysql database to install. You will be prompted for a database name, a username, and a password for this (the username must have CREATE permimssions on the database). The test process will create two tables (called 'device', and 'capability') in this database. Optionally, both tables created can be dropped at the end of the tests, if the 'cleanup' option is set to 'yes'\n";
-for ( qw( database username password cleanup ) )
-{
-    print STDERR "$_ ($db{$_}): ";
-    my $ans = <>;
-    chomp $ans;
-    $db{$_} = $ans || $db{$_};
-}
-require_ok( 'Mobile::Wurfl' );
-$wurfl = eval { Mobile::Wurfl->new( 
-    db_descriptor => "DBI:mysql:database=$db{database}", 
-    db_username => $db{username},
-    db_password => $db{password},
+ok ( require Mobile::Wurfl, "require Mobile::Wurfl" ); 
+my $wurfl = eval { Mobile::Wurfl->new(
+    wurfl_home => "/tmp/",
+    db_descriptor => "dbi:SQLite:dbname=/tmp/wurfl.db",
+    db_username => '',
+    db_password => '',
+    verbose => 2,
 ); };
+
+warn "create Mobile::Wurfl object ...\n";
 ok( $wurfl && ! $@, "create Mobile::Wurfl object: $@" );
 exit unless $wurfl;
-if ( $db{cleanup} eq 'yes' )
-{
-    eval { $wurfl->cleanup() };
-    ok( ! $@ , "cleanup: $@" );
-}
-eval { $wurfl->create_tables() };
+warn "create tables ...\n";
+eval { $wurfl->create_tables( $create_sql ) };
 ok( ! $@ , "create db tables: $@" );
+warn "update ...\n";
 my $updated = eval { $wurfl->update(); };
 ok( ! $@ , "update: $@" );
-if ( $db{cleanup} eq 'yes' )
-{
-    ok( $updated, "updated" );
-}
+ok( $updated, "updated" );
 ok( ! $wurfl->update(), "no update if not required" );
 ok( ! $wurfl->rebuild_tables(), "no rebuild_tables if not required" );
 ok( ! $wurfl->get_wurfl(), "no get_wurfl if not required" );
@@ -95,8 +104,5 @@ for my $cap ( @capabilities )
     my $val = $wurfl->lookup( $ua, $cap );
     ok( defined $val, "lookup $cap" );
 }
-if ( $db{cleanup} eq 'yes' )
-{
-    eval { $wurfl->cleanup() };
-    ok( ! $@ , "cleanup: $@" );
-}
+eval { $wurfl->cleanup() };
+ok( ! $@ , "cleanup: $@" );

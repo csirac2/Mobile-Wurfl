@@ -3,3 +3,4 @@
 1.05 - re-wrote update and tests, now uses XML::Parser and LWP::UserAgent
 1.06 - added verbose levels, dbh option, and table name options
 1.07 - various bug fixes submitted by Ian Shrimpton [ian@persistentmobile.com]
+1.08 - patches from Oliver Paukstadt [pstadt@sourcentral.org] & Matias Alejo Garcia [matias@cinemaki.com]
