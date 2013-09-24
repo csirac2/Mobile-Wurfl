@@ -10,28 +10,6 @@ use DBI;
 
 use lib 'lib';
 
-my $groups = [ sort qw(
-    sms
-    drm
-    bugs
-    streaming
-    display
-    j2me
-    wml_ui
-    markup
-    sound_format
-    product_info
-    wta
-    image_format
-    xhtml_ui
-    chtml_ui
-    wap_push
-    object_download
-    security
-    storage
-    mms
-    cache
-) ];
 my $create_sql = <<EOF;
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
@@ -55,6 +33,10 @@ CREATE INDEX IF NOT EXISTS user_agent ON device (user_agent);
 CREATE INDEX IF NOT EXISTS id ON device (id);
 EOF
 
+my $long_user_agent = {
+    string => "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0; SLCC2; .NET CLR 2.0.50727; .NET CLR 3.5.30729; .NET CLR 3.0.30729; Media Center PC 6.0; InfoPath.2; Creative ZENcast v2.01.01)",
+    canonical => "Mozilla/4.0",
+};
 
 $| = 1;
 ok ( require Mobile::Wurfl, "require Mobile::Wurfl" ); 
@@ -63,16 +45,13 @@ my $wurfl = eval { Mobile::Wurfl->new(
     db_descriptor => "dbi:SQLite:dbname=/tmp/wurfl.db",
     db_username => '',
     db_password => '',
-    verbose => 2,
+    # verbose => 2,
 ); };
 
-warn "create Mobile::Wurfl object ...\n";
 ok( $wurfl && ! $@, "create Mobile::Wurfl object: $@" );
 exit unless $wurfl;
-warn "create tables ...\n";
 eval { $wurfl->create_tables( $create_sql ) };
 ok( ! $@ , "create db tables: $@" );
-warn "update ...\n";
 my $updated = eval { $wurfl->update(); };
 ok( ! $@ , "update: $@" );
 ok( $updated, "updated" );
@@ -80,7 +59,6 @@ ok( ! $wurfl->update(), "no update if not required" );
 ok( ! $wurfl->rebuild_tables(), "no rebuild_tables if not required" );
 ok( ! $wurfl->get_wurfl(), "no get_wurfl if not required" );
 my @groups = sort $wurfl->groups();
-# is_deeply( \@groups, $groups, "group list" );
 my %capabilities;
 for my $group ( @groups )
 {
@@ -97,6 +75,8 @@ my $ua = $wurfl->canonical_ua( $device->{user_agent} );
 is( $device->{user_agent}, $ua, "ua lookup" );
 my $cua = $wurfl->canonical_ua( "$device->{user_agent}/ random stuff ..." );
 is( $device->{user_agent}, $cua, "canonical ua lookup" );
+$cua = $wurfl->canonical_ua( $long_user_agent->{string} );
+is( $long_user_agent->{canonical}, $cua, "canonical_ua deep recursion" );
 my $deviceid = $wurfl->deviceid( $device->{user_agent} );
 is( $device->{id}, $deviceid, "deviceid ua lookup" );
 for my $cap ( @capabilities )

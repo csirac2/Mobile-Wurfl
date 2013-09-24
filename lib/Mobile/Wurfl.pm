@@ -1,12 +1,12 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.08';
+$VERSION = '1.09';
 
 use strict;
 use warnings;
 use DBI;
 use DBD::mysql;
-use XML::Parser( Style => "Object" );
+use XML::Parser;
 require LWP::UserAgent;
 use HTTP::Date;
 use Template;
@@ -205,6 +205,7 @@ sub rebuild_tables
     my ( $device_id, $group_id );
     print STDERR "create XML parser ...\n";
     my $xp = new XML::Parser(
+        Style => "Object",
         Handlers => {
             Start => sub { 
                 my ( $expat, $element, %attrs ) = @_;
@@ -378,6 +379,7 @@ sub _fallback
 
 sub canonical_ua
 {
+    no warnings 'recursion';
     my $self = shift;
     my $ua = shift;
     $self->_init();
