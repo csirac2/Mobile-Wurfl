@@ -7,6 +7,9 @@ use Data::Dumper;
 use File::Path;
 use DBD::SQLite;
 use DBI;
+use Git::Repository();
+use File::Temp();
+use File::Spec();
 
 use lib 'lib';
 
@@ -38,26 +41,47 @@ my $long_user_agent = {
     canonical => "Mozilla/4.0",
 };
 
+# WURFL data has a restrictive license these days. The last free version was
+# released on 2011-04-24 and contains the following license text:
+#
+# All the information listed here has been collected by many different people
+# from many different countries. You are allowed to use WURFL in any of your
+# applications, free or commercial. The only thing required is to make public
+# any modification to this file, following the original spirit and idea of the
+# creators of this project.
+my $USE_FREE_WURFL = defined $ENV{USE_FREE_WURFL} ? $ENV{USE_FREE_WURFL} : 1;
+
 $| = 1;
 ok ( require Mobile::Wurfl, "require Mobile::Wurfl" ); 
-my $wurfl = eval { Mobile::Wurfl->new(
-    wurfl_home => "/tmp/",
-    db_descriptor => "dbi:SQLite:dbname=/tmp/wurfl.db",
-    db_username => '',
-    db_password => '',
-    # verbose => 2,
-); };
+my $wurfl = eval {
+    my %opts = (
+        wurfl_home => "/tmp/",
+        db_descriptor => "dbi:SQLite:dbname=/tmp/wurfl.db",
+        db_username => '',
+        db_password => '',
+        # verbose => 2,
+    );
+    if ($USE_FREE_WURFL) {
+        $opts{wurfl_url} = get_free_wurfl_file();
+    }
+    Mobile::Wurfl->new(%opts);
+};
 
 ok( $wurfl && ! $@, "create Mobile::Wurfl object: $@" );
 exit unless $wurfl;
 eval { $wurfl->create_tables( $create_sql ) };
 ok( ! $@ , "create db tables: $@" );
-my $updated = eval { $wurfl->update(); };
-ok( ! $@ , "update: $@" );
-ok( $updated, "updated" );
-ok( ! $wurfl->update(), "no update if not required" );
-ok( ! $wurfl->rebuild_tables(), "no rebuild_tables if not required" );
-ok( ! $wurfl->get_wurfl(), "no get_wurfl if not required" );
+SKIP: {
+    skip('USE_FREE_WURFL is true, so we can\'t test get_wurfl() or update()',
+        5) if $USE_FREE_WURFL;
+
+    my $updated = eval { $wurfl->update(); };
+    ok( ! $@ , "update: $@" );
+    ok( $updated, "updated" );
+    ok( ! $wurfl->update(), "no update if not required" );
+    ok( ! $wurfl->rebuild_tables(), "no rebuild_tables if not required" );
+    ok( ! $wurfl->get_wurfl(), "no get_wurfl if not required" );
+}
 my @groups = sort $wurfl->groups();
 my %capabilities;
 for my $group ( @groups )
@@ -84,5 +108,33 @@ for my $cap ( @capabilities )
     my $val = $wurfl->lookup( $ua, $cap );
     ok( defined $val, "lookup $cap" );
 }
+
+# Sadly, the only place hosting this last freely licensed version of the WURFL
+# xml is a github repo. And it's too big for github to serve raw, so we must
+# clone it to somewhere where we can get at it.
+sub get_free_wurfl_file {
+    my $xml_fname = '2011-04-24-wurfl.xml';
+    my $xml_path;
+
+    if ( -e $xml_fname ) {
+        print "Using existing '$xml_fname'...\n";
+        $xml_path = $xml_fname;
+    }
+    else {
+        my $git_url = 'git://github.com/bdelacretaz/wurfl';
+        my $git_dir = File::Temp->tempdir('wurfl_git_repo_XXXX');
+
+        print <<"HERE";
+'$xml_fname' not found - trying to git-clone it from
+'$git_url' into '$git_dir'
+HERE
+        $xml_path = File::Spec->catfile($git_dir, $xml_fname);
+        Git::Repository->run( clone => $git_url, $git_dir );
+    }
+    print "Full path to '$xml_fname' is '$xml_path'\n";
+
+    return $xml_path;
+}
+
 eval { $wurfl->cleanup() };
 ok( ! $@ , "cleanup: $@" );
