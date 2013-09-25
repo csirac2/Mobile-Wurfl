@@ -1,6 +1,6 @@
 package Mobile::Wurfl;
 
-$VERSION = '1.09';
+$VERSION = '2.00';
 
 use strict;
 use warnings;
@@ -30,7 +30,6 @@ sub new
         db_password => 'wurfl',
         device_table_name => 'device',
         capability_table_name => 'capability',
-        wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},
         verbose => 0,
         @_
     );
@@ -478,6 +477,8 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
 
 =head1 SYNOPSIS
 
+NB: The sourceforge wurfl_url link below is dead - see L</"IMPORTANT - WURFL DATA LICENSE CHANGE">
+
     my $wurfl = Mobile::Wurfl->new(
         wurfl_home => "/path/to/wurfl/home",
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
@@ -522,13 +523,32 @@ Mobile::Wurfl - a perl module interface to WURFL (the Wireless Universal Resourc
 
 =head1 DESCRIPTION
 
-Mobile::Wurfl is a perl module that provides an interface to mobile device information represented in wurfl (L<http://wurfl.sourceforge.net/>). The Mobile::Wurfl module works by saving this device information in a database (preferably mysql). 
+Mobile::Wurfl is a perl module that provides an interface to mobile device information represented in wurfl (L<http://wurfl.sourceforge.net/>). The Mobile::Wurfl module works by saving this device information in a database (preferably mysql).
 
-It offers an interface to create the relevant database tables from a SQL file containing "CREATE TABLE" statements (a sample is provided with the distribution). It also provides a method for updating the data in the database from the wurfl.xml file hosted at L<http://kent.dl.sourceforge.net/sourceforge/wurfl/wurfl-latest.xml.gz>. 
+It offers an interface to create the relevant database tables from a SQL file containing "CREATE TABLE" statements (a sample is provided with the distribution). It also provides a method for updating the data in the database from the wurfl xml files hosted by ScientiaMobile, Inc.
 
 It provides methods to query the database for lists of capabilities, and groups of capabilities. It also provides a method for generating a "canonical" user agent string (see L</canonical_ua>). 
 
 Finally, it provides a method for looking up values for particular capability / user agent combinations. By default, this makes use of the hierarchical "fallback" structure of wurfl to lookup capabilities fallback devices if these capabilities are not defined for the requested device.
+
+=head2 IMPORTANT - WURFL DATA LICENSE CHANGE
+
+=over
+
+Mobile::Wurfl was written during a time when the WURFL data was still freely
+licensed. See L<Net::WURFL::ScientiaMobile> for the official CPAN module which
+is the new (only?) way to work with the current WURFL data without paying fees.
+
+The last version of the WURFL XML which still had a permissive license was
+released 2011-04-24, and contained the following text:
+
+ All the information listed here has been collected by many different people
+ from many different countries. You are allowed to use WURFL in any of your
+ applications, free or commercial. The only thing required is to make public
+ any modification to this file, following the original spirit and idea of the
+ creators of this project.
+
+=back
 
 =head1 METHODS
 
@@ -544,6 +564,8 @@ The Mobile::Wurfl constructor takes an optional list of named options; e.g.:
         wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},,
         verbose => 1,
     );
+
+NB: The sourceforge wurfl_url link above is dead - see L</"IMPORTANT - WURFL DATA LICENSE CHANGE">
 
 The list of possible options are as follows:
 
@@ -571,7 +593,7 @@ A DBI database handle.
 
 =item wurfl_url
 
-The URL from which to get the wurfl.xml file, this can be uncompressed or compressed with zip or gzip Default is L<http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download>.
+The URL from which to get the wurfl.xml file, this can be uncompressed or compressed with zip or gzip. Historically this option has defaulted to a sourceforge URL, but this was removed - see L</"IMPORTANT - WURFL DATA LICENSE CHANGE">
 
 =item verbose
 
