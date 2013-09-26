@@ -73,8 +73,12 @@ exit unless $wurfl;
 eval { $wurfl->create_tables( $create_sql ) };
 ok( ! $@ , "create db tables: $@" );
 SKIP: {
-    skip('USE_FREE_WURFL is true, so we can\'t test get_wurfl() or update()',
-        5) if $USE_FREE_WURFL;
+    if ($USE_FREE_WURFL) {
+        ok( $wurfl->rebuild_tables(),
+            "rebuild_tables because we USE_FREE_WURFL"
+        );
+        skip("USE_FREE_WURFL true, so we can't test get_wurfl() or update()", 5);
+    }
 
     my $updated = eval { $wurfl->update(); };
     ok( ! $@ , "update: $@" );
