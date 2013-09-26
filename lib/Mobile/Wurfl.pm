@@ -14,17 +14,19 @@ use File::Spec;
 use File::Basename;
 use IO::Uncompress::Unzip qw(unzip $UnzipError);;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
+use File::Temp();
 
 my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
     capability => [ qw( groupid name value deviceid ) ],
 );
+my $wurfl_home = File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1);
 
 sub new
 {
     my $class = shift;
     my %opts = (
-        wurfl_home => "/tmp",
+        wurfl_home => $wurfl_home,
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
@@ -573,7 +575,7 @@ The list of possible options are as follows:
 
 =item wurfl_home
 
-Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to /tmp.
+Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1)>.
 
 =item db_descriptor
 

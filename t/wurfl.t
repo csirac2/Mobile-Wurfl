@@ -50,21 +50,29 @@ my $long_user_agent = {
 # applications, free or commercial. The only thing required is to make public
 # any modification to this file, following the original spirit and idea of the
 # creators of this project.
-my $USE_FREE_WURFL = defined $ENV{USE_FREE_WURFL} ? $ENV{USE_FREE_WURFL} : 1;
+my $WURFL_URL;
 
 $| = 1;
 ok ( require Mobile::Wurfl, "require Mobile::Wurfl" ); 
 my $wurfl = eval {
     my %opts = (
         wurfl_home => $wurfl_home,
-        db_descriptor => "dbi:SQLite:dbname=" . File::Spec->catfile($wurfl_home, 'wurfl.db'),
+        db_descriptor => "dbi:SQLite:dbname=" .
+            File::Spec->catfile($wurfl_home, 'wurfl.db'),
         db_username => '',
         db_password => '',
         # verbose => 2,
     );
-    if ($USE_FREE_WURFL) {
-        $opts{wurfl_url} = get_free_wurfl_file();
+    if ( defined $ENV{WURFL_URL} ) {
+        $WURFL_URL = $ENV{WURFL_URL};
     }
+    else {
+        $WURFL_URL = get_free_wurfl_file();
+        ok( ($WURFL_URL && -e $WURFL_URL),
+            "WURFL_URL is not set, so try to clone something from github"
+        );
+    }
+    $opts{wurfl_url} = $WURFL_URL;
     Mobile::Wurfl->new(%opts);
 };
 
@@ -73,11 +81,14 @@ exit unless $wurfl;
 eval { $wurfl->create_tables( $create_sql ) };
 ok( ! $@ , "create db tables: $@" );
 SKIP: {
-    if ($USE_FREE_WURFL) {
+    if ( defined $ENV{WURFL_URL} ) {
+        print "# WURFL_URL is set to '$WURFL_URL'\n";
+    }
+    else {
         ok( $wurfl->rebuild_tables(),
-            "rebuild_tables because we USE_FREE_WURFL"
+            "rebuild_tables because WURFL_URL was not set"
         );
-        skip("USE_FREE_WURFL true, so we can't test get_wurfl() or update()", 5);
+        skip("WURFL_URL not set, so we can't test get_wurfl() or update()", 5);
     }
 
     my $updated = eval { $wurfl->update(); };
@@ -119,27 +130,28 @@ for my $cap ( @capabilities )
 # clone it to somewhere where we can get at it.
 sub get_free_wurfl_file {
     my $xml_fname = '2011-04-24-wurfl.xml';
-    my $xml_path;
+    my $xml_path = File::Spec->catfile($wurfl_home, $xml_fname);
 
     if ( -e $xml_fname ) {
-        $xml_path = File::Spec->catfile($wurfl_home, $xml_fname);
-        print "Copying existing '$xml_fname' into '$wurfl_home'...\n";
+        print "# Copying existing '$xml_fname' into '$wurfl_home'...\n";
         File::Copy::copy($xml_fname, $xml_path) or die $!;
     }
     else {
         my $git_url = 'git://github.com/bdelacretaz/wurfl';
 
         # Git::Repository clones into parent dir unless there's a trailing slash
-        my $git_dir = File::Spec->catdir($wurfl_home, 'wurfl_free_git_repo', '');
+        my $git_dir = File::Spec->catdir($wurfl_home, 'github.com-bdelacretaz-wurfl', '');
+        my $xml_git_path = File::Spec->catfile($git_dir, $xml_fname);
 
         print <<"HERE";
-'$xml_fname' not found - trying to git-clone it from
-'$git_url' into '$git_dir'
+# '$xml_fname' not found - trying to git-clone it from
+# '$git_url' into '$git_dir'
 HERE
-        $xml_path = File::Spec->catfile($git_dir, $xml_fname);
         Git::Repository->run( clone => $git_url, $git_dir );
+        print "# Copying '$xml_git_path' into '$wurfl_home'...\n";
+        File::Copy::copy($xml_git_path, $xml_path) or die $!;
     }
-    print "Full path to '$xml_fname' is '$xml_path'\n";
+    print "# Full path to '$xml_fname' is '$xml_path'\n";
 
     return $xml_path;
 }
