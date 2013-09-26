@@ -122,8 +122,10 @@ sub get_free_wurfl_file {
     }
     else {
         my $git_url = 'git://github.com/bdelacretaz/wurfl';
-        my $git_dir = File::Temp->tempdir('wurfl_git_repo_XXXX');
+        my $git_dir = File::Temp::tempdir('wurfl_git_repo_XXXX', CLEANUP => 1);
 
+        # Git::Repository clones into parent dir unless there's a trailing slash
+        $git_dir = File::Spec->catdir($git_dir, '');
         print <<"HERE";
 '$xml_fname' not found - trying to git-clone it from
 '$git_url' into '$git_dir'
