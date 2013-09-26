@@ -3,16 +3,17 @@ use strict;
 use warnings;
 use Test::More qw( no_plan );
 use FindBin qw( $Bin );
-use Data::Dumper;
 use File::Path;
 use DBD::SQLite;
 use DBI;
 use Git::Repository();
 use File::Temp();
 use File::Spec();
+use File::Copy();
 
 use lib 'lib';
 
+my $wurfl_home = File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1);
 my $create_sql = <<EOF;
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
@@ -55,8 +56,8 @@ $| = 1;
 ok ( require Mobile::Wurfl, "require Mobile::Wurfl" ); 
 my $wurfl = eval {
     my %opts = (
-        wurfl_home => "/tmp/",
-        db_descriptor => "dbi:SQLite:dbname=/tmp/wurfl.db",
+        wurfl_home => $wurfl_home,
+        db_descriptor => "dbi:SQLite:dbname=" . File::Spec->catfile($wurfl_home, 'wurfl.db'),
         db_username => '',
         db_password => '',
         # verbose => 2,
@@ -117,15 +118,16 @@ sub get_free_wurfl_file {
     my $xml_path;
 
     if ( -e $xml_fname ) {
-        print "Using existing '$xml_fname'...\n";
-        $xml_path = $xml_fname;
+        $xml_path = File::Spec->catfile($wurfl_home, $xml_fname);
+        print "Copying existing '$xml_fname' into '$wurfl_home'...\n";
+        File::Copy::copy($xml_fname, $xml_path) or die $!;
     }
     else {
         my $git_url = 'git://github.com/bdelacretaz/wurfl';
-        my $git_dir = File::Temp::tempdir('wurfl_git_repo_XXXX', CLEANUP => 1);
 
         # Git::Repository clones into parent dir unless there's a trailing slash
-        $git_dir = File::Spec->catdir($git_dir, '');
+        my $git_dir = File::Spec->catdir($wurfl_home, 'wurfl_free_git_repo', '');
+
         print <<"HERE";
 '$xml_fname' not found - trying to git-clone it from
 '$git_url' into '$git_dir'
