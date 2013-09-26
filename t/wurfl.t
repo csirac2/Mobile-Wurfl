@@ -140,7 +140,9 @@ sub get_free_wurfl_file {
         my $git_url = 'git://github.com/bdelacretaz/wurfl';
 
         # Git::Repository clones into parent dir unless there's a trailing slash
-        my $git_dir = File::Spec->catdir($wurfl_home, 'github.com-bdelacretaz-wurfl', '');
+        my $git_dir = File::Spec->catdir($wurfl_home,
+            'github.com-bdelacretaz-wurfl', ''
+        );
         my $xml_git_path = File::Spec->catfile($git_dir, $xml_fname);
 
         print <<"HERE";
