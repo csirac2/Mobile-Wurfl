@@ -575,7 +575,7 @@ The list of possible options are as follows:
 
 =item wurfl_home
 
-Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1)>.
+Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<<<< File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1) >>>>.
 
 =item db_descriptor
 
