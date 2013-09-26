@@ -101,13 +101,13 @@ is_deeply( [ sort @capabilities ], [ sort keys %capabilities ], "capabilities li
 my @devices = $wurfl->devices();
 my $device = $devices[int(rand(@devices))];
 my $ua = $wurfl->canonical_ua( $device->{user_agent} );
-is( $device->{user_agent}, $ua, "ua lookup" );
+is( $ua, $device->{user_agent}, "ua lookup" );
 my $cua = $wurfl->canonical_ua( "$device->{user_agent}/ random stuff ..." );
-is( $device->{user_agent}, $cua, "canonical ua lookup" );
+is( $cua, $device->{user_agent}, "canonical ua lookup" );
 $cua = $wurfl->canonical_ua( $long_user_agent->{string} );
-is( $long_user_agent->{canonical}, $cua, "canonical_ua deep recursion" );
+is( $cua, $long_user_agent->{canonical}, "canonical_ua deep recursion" );
 my $deviceid = $wurfl->deviceid( $device->{user_agent} );
-is( $device->{id}, $deviceid, "deviceid ua lookup" );
+is( $deviceid, $device->{id}, "deviceid ua lookup" );
 for my $cap ( @capabilities )
 {
     my $val = $wurfl->lookup( $ua, $cap );
