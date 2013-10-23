@@ -21,6 +21,23 @@ my %tables = (
     capability => [ qw( groupid name value deviceid ) ],
 );
 my $wurfl_home = File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1);
+my $log_verbosity;
+my $log_fh;
+
+sub log_debug {
+    my ($self, $omsg) = @_;
+
+    if ( $log_verbosity ) {
+       if ($log_verbosity == 1 ) {
+            print $log_fh ($omsg || $self) . "\n";
+        }
+        else {
+            print STDERR ($omsg || $self) . "\n";
+        }
+    }
+
+    return;
+}
 
 sub new
 {
@@ -37,19 +54,14 @@ sub new
     );
 
     my $self = bless \%opts, $class;
-    if ( ! $self->{verbose} )
-    {
-        open( STDERR, ">" . File::Spec->devnull() )
+
+    $log_verbosity = $self->{verbose};
+    if ($log_verbosity == 1) {
+        open( $log_fh, '>',
+            File::Spec->catfile($self->{wurfl_home}, 'wurfl.log')
+        );
     }
-    elsif ( $self->{verbose} == 1 )
-    {
-        open( STDERR, ">$self->{wurfl_home}/wurfl.log" );
-    }
-    else
-    {
-        warn "log to STDERR\n";
-    }
-    print STDERR "connecting to $self->{db_descriptor} as $self->{db_username}\n";
+    $class->log_debug("connecting to $self->{db_descriptor} as $self->{db_username}");
     $self->{dbh} ||= DBI->connect( 
         $self->{db_descriptor},
         $self->{db_username},
@@ -172,7 +184,7 @@ sub touch( $$ )
     my $time = shift;
     die "no path" unless $path;
     die "no time" unless $time;
-    print STDERR "touch $path ($time)\n";
+    log_debug("touch $path ($time)");
     return utime( $time, $time, $path );
 }
 
@@ -183,7 +195,7 @@ sub last_update
     $self->{last_update_sth}->execute();
     my ( $ts ) = str2time($self->{last_update_sth}->fetchrow());
     $ts ||= 0;
-    print STDERR "last update: $ts\n";
+    $self->log_debug("last update: $ts");
     return $ts;
 }
 
@@ -195,16 +207,16 @@ sub rebuild_tables
     my $last_update = $self->last_update();
     if ( $local <= $last_update )
     {
-        print STDERR "$self->{wurfl_file} has not changed since the last database update\n";
+        $self->log_debug("$self->{wurfl_file} has not changed since the last database update");
         return 0;
     }
-    print STDERR "$self->{wurfl_file} is newer than the last database update\n";
-    print STDERR "flush dB tables ...\n";
+    $self->log_debug("$self->{wurfl_file} is newer than the last database update");
+    $self->log_debug("flush dB tables ...");
     $self->{dbh}->begin_work;
     $self->{dbh}->do( "DELETE FROM $self->{device_table_name}" );
     $self->{dbh}->do( "DELETE FROM $self->{capability_table_name}" );
     my ( $device_id, $group_id );
-    print STDERR "create XML parser ...\n";
+    $self->log_debug("create XML parser ...");
     my $xp = new XML::Parser(
         Style => "Object",
         Handlers => {
@@ -235,9 +247,9 @@ sub rebuild_tables
             },
         }
     );
-    print STDERR "parse XML ...\n";
+    $self->log_debug("parse XML ...");
     $xp->parsefile( $self->{wurfl_file} );
-    print STDERR "commit dB ...\n";
+    $self->log_debug("commit dB ...");
     $self->{dbh}->commit;
     return 1;
 }
@@ -245,11 +257,11 @@ sub rebuild_tables
 sub update
 {
     my $self = shift;
-    print STDERR "get wurfl\n";
+    $self->log_debug("get wurfl");
     my $got_wurfl = $self->get_wurfl();
-    print STDERR "got wurfl: $got_wurfl\n";
+    $self->log_debug("got wurfl: $got_wurfl");
     my $rebuilt ||= $self->rebuild_tables();
-    print STDERR "rebuilt: $rebuilt\n";
+    $self->log_debug("rebuilt: $rebuilt");
     return $got_wurfl || $rebuilt;
 }
 
@@ -257,22 +269,22 @@ sub get_local_stats
 {
     my $self = shift;
     return ( 0, 0 ) unless -e $self->{wurfl_file};
-    print STDERR "stat $self->{wurfl_file} ...\n";
+    $self->log_debug("stat $self->{wurfl_file} ...");
     my @stat = ( stat $self->{wurfl_file} )[ 7,9 ];
-    print STDERR "@stat\n";
+    $self->log_debug("@stat");
     return @stat;
 }
 
 sub get_remote_stats
 {
     my $self = shift;
-    print STDERR "HEAD $self->{wurfl_url} ...\n";
+    $self->log_debug("HEAD $self->{wurfl_url} ...");
     my $response = $self->{ua}->head( $self->{wurfl_url} );
     die $response->status_line unless $response->is_success;
     die "can't get content_length\n" unless $response->content_length;
     die "can't get last_modified\n" unless $response->last_modified;
     my @stat = ( $response->content_length, $response->last_modified );
-    print STDERR "@stat\n";
+    $self->log_debug("@stat");
     return @stat;
 }
 
@@ -284,11 +296,11 @@ sub get_wurfl
  
     if ( $local[1] == $remote[1] )
     {
-        print STDERR "@local and @remote are the same\n";
+        $self->log_debug("@local and @remote are the same");
         return 0;
     }
-    print STDERR "@local and @remote are different\n";
-    print STDERR "GET $self->{wurfl_url} -> $self->{wurfl_file} ...\n";
+    $self->log_debug("@local and @remote are different");
+    $self->log_debug("GET $self->{wurfl_url} -> $self->{wurfl_file} ...");
 
     #create a temp filename
     my $tempfile = "$self->{wurfl_home}/wurfl_$$";
@@ -388,14 +400,14 @@ sub canonical_ua
     my $deviceid = $self->{deviceid_sth}->fetchrow;
     if ( $deviceid )
     {
-        print STDERR "$ua found\n";
+        $self->log_debug("$ua found");
         return $ua;
     }
     $ua = substr( $ua, 0, -1 );
     # $ua =~ s/^(.+)\/(.*)$/$1\// ;
     unless ( length $ua )
     {
-        print STDERR "can't find canonical user agent\n";
+        $self->log_debug("can't find canonical user agent");
         return;
     }
     return $self->canonical_ua( $ua );
@@ -408,7 +420,7 @@ sub device
     $self->_init();
     $self->{device_sth}->execute( $deviceid );
     my $device = $self->{device_sth}->fetchrow_hashref;
-    print STDERR "can't find device for user deviceid $deviceid\n" unless $device;
+    $self->log_debug("can't find device for user deviceid $deviceid") unless $device;
     return $device;
 }
 
@@ -419,7 +431,7 @@ sub deviceid
     $self->_init();
     $self->{deviceid_sth}->execute( $ua );
     my $deviceid = $self->{deviceid_sth}->fetchrow;
-    print STDERR "can't find device id for user agent $ua\n" unless $deviceid;
+    $self->log_debug("can't find device id for user agent $ua") unless $deviceid;
     return $deviceid;
 }
 
@@ -451,19 +463,19 @@ sub lookup_value
 sub cleanup
 {
     my $self = shift;
-    print STDERR "cleanup ...\n";
+    $self->log_debug("cleanup ...");
     if ( $self->{dbh} )
     {
-        print STDERR "drop tables\n";
+        $self->log_debug("drop tables");
         for ( keys %tables )
         {
-            print STDERR "DROP TABLE IF EXISTS $_\n";
+            $self->log_debug("DROP TABLE IF EXISTS $_");
             $self->{dbh}->do( "DROP TABLE IF EXISTS $_" );
         }
     }
     return unless $self->{wurfl_file};
     return unless -e $self->{wurfl_file};
-    print STDERR "unlink $self->{wurfl_file}\n";
+    $self->log_debug("unlink $self->{wurfl_file}");
     unlink $self->{wurfl_file} || die "Can't remove $self->{wurfl_file}: $!\n";
 }
 
