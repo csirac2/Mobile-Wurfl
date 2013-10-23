@@ -405,6 +405,9 @@ sub canonical_ua
         $self->log_debug("$ua found");
         return $ua;
     }
+    else {
+        #$self->log_debug("ua not found: " . ($ua || ''));
+    }
     $ua = substr( $ua, 0, -1 );
     # $ua =~ s/^(.+)\/(.*)$/$1\// ;
     unless ( length $ua )
@@ -433,7 +436,7 @@ sub deviceid
     $self->_init();
     $self->{deviceid_sth}->execute( $ua );
     my $deviceid = $self->{deviceid_sth}->fetchrow;
-    $self->log_debug("can't find device id for user agent $ua") unless $deviceid;
+    $self->log_debug("can't find device id for user agent " . ($ua || '')) unless $deviceid;
     return $deviceid;
 }
 
