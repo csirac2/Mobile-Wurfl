@@ -37,6 +37,8 @@ CREATE TABLE device (
         ts DATETIME default CURRENT_TIMESTAMP
         );
 CREATE INDEX IF NOT EXISTS user_agent ON device (user_agent);
+CREATE INDEX IF NOT EXISTS user_agent_idx
+        ON device (user_agent COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS id ON device (id);
 EOF
 
@@ -193,21 +195,37 @@ sub device_capabilities {
     return \%results;
 }
 
+sub do_dc_benchmark {
+    my ($ua, $annotation, $count, $method) = @_;
+
+    # SMELL: Lazy.
+    my $orig_method = $wurfl->get('canonical_ua_default_method');
+    my $benchmark;
+
+    $wurfl->set('canonical_ua_default_method', $method);
+    $benchmark = Benchmark::timeit($count,
+        sub {
+            device_capabilities($ua, $annotation, $method)
+        }
+    );
+    print "#   $count cycles of ${annotation}->${method}(): "
+        . Benchmark::timestr($benchmark) . "\n";
+    $wurfl->set('canonical_ua_default_method', $orig_method);
+
+    return;
+}
+
 sub device_capabilities_timing_tests {
     my ($ua, $annotation, $count) = @_;
     my $canon_ua = $wurfl->canonical_ua($ua);
-    my $benchmark;
 
     $count ||= 100;
     ok(defined $canon_ua && length($canon_ua), "got a canonical ua for $annotation");
     print "#   canonical_ua: '$canon_ua'\n" if $canon_ua;
+    do_dc_benchmark($ua, $annotation, $count, 'canonical_ua_incremental');
+    do_dc_benchmark($ua, $annotation, $count, 'canonical_ua_binary');
 
-    $benchmark = Benchmark::timeit($count, sub { device_capabilities($ua, $annotation) });
-
-    print "#   $count cycles of $annotation: "
-        . Benchmark::timestr($benchmark) . "\n";
-
-    return $benchmark;
+    return;
 }
 
 # Something obscure, caught in the wild.
