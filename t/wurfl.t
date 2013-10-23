@@ -195,32 +195,34 @@ sub device_capabilities {
     return \%results;
 }
 
-sub do_dc_benchmark {
-    my ($ua, $annotation, $count, $method) = @_;
-    my $test_wurfl = Mobile::Wurfl->new(
+sub get_new_wurfl {
+    my ($method) = @_;
+
+    return Mobile::Wurfl->new(
         canonical_ua_default_method => $method,
         map { $_ => $wurfl->{$_} } (qw(wurfl_url wurfl_home),
            qw(db_descriptor db_username db_password verbose))
     );
-
-    return device_capabilities($ua, $annotation, $test_wurfl);
 }
 
 sub device_capabilities_timing_tests {
     my ($ua, $annotation, $count) = @_;
     my $canon_ua = $wurfl->canonical_ua($ua);
     my $method1 = 'canonical_ua_incremental';
+    my $wurfl1 = get_new_wurfl($method1);
     my $method2 = 'canonical_ua_binary';
+    my $wurfl2 = get_new_wurfl($method2);
 
     $count ||= 100;
-    ok(defined $canon_ua && length($canon_ua), "got a canonical ua for $annotation");
+    ok(defined $canon_ua && length($canon_ua),
+        "got a canonical ua for $annotation");
     print "#   canonical_ua: '$canon_ua'\n" if $canon_ua;
     my $results = Benchmark::timethese($count,
         {
             $method1 =>
-                sub { do_dc_benchmark($ua, $annotation, $count, $method1) },
+                sub { device_capabilities($ua, $annotation, $wurfl1) },
             $method2 =>
-                sub { do_dc_benchmark($ua, $annotation, $count, $method2) },
+                sub { device_capabilities($ua, $annotation, $wurfl2) },
         }
     );
     Benchmark::cmpthese($results);
