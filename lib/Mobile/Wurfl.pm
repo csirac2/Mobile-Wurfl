@@ -20,7 +20,6 @@ my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
     capability => [ qw( groupid name value deviceid ) ],
 );
-my $wurfl_home = File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1);
 my $log_verbosity;
 my $log_fh;
 
@@ -43,7 +42,6 @@ sub new
 {
     my $class = shift;
     my %opts = (
-        wurfl_home => $wurfl_home,
         db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
         db_username => 'wurfl',
         db_password => 'wurfl',
@@ -52,6 +50,10 @@ sub new
         verbose => 0,
         @_
     );
+    if ( !exists $opts{wurfl_home} ) {
+        $opts{wurfl_home} =
+            File::Temp::tempdir( 'wurfl_home_XXXX', CLEANUP => 1 );
+    }
 
     my $self = bless \%opts, $class;
 
