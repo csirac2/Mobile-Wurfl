@@ -7,7 +7,7 @@ use warnings;
 use DBI;
 use DBD::mysql;
 use XML::Parser;
-require LWP::UserAgent;
+use LWP::UserAgent();
 use HTTP::Date;
 use Template;
 use File::Spec;
@@ -15,6 +15,7 @@ use File::Basename;
 use IO::Uncompress::Unzip qw(unzip $UnzipError);;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use File::Temp();
+use POSIX;
 
 my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
@@ -48,6 +49,8 @@ sub new
         device_table_name => 'device',
         capability_table_name => 'capability',
         verbose => 0,
+        canonical_ua_default_method => 'canonical_ua_incremental',
+        canonical_ua_fetch_max => 100,
         @_
     );
     if ( !exists $opts{wurfl_home} ) {
@@ -56,6 +59,10 @@ sub new
     }
 
     my $self = bless \%opts, $class;
+    if (! $self->can($self->{canonical_ua_default_method})) {
+        die 'Don\'t know how to \$self->' .
+            ( $self->{canonical_ua_default_method} || '?');
+    }
 
     $log_verbosity = $self->{verbose};
     if ($log_verbosity == 1) {
@@ -116,6 +123,12 @@ sub _init
     );
     $self->{deviceid_sth} = $self->{dbh}->prepare( 
         "SELECT id FROM $self->{device_table_name} WHERE user_agent = ?"
+    );
+    $self->{deviceid_like_sth} = $self->{dbh}->prepare( 
+        "SELECT id,user_agent FROM $self->{device_table_name} WHERE user_agent LIKE ?"
+    );
+    $self->{deviceid_like_count_sth} = $self->{dbh}->prepare( 
+        "SELECT COUNT(*) FROM $self->{device_table_name} WHERE user_agent LIKE ?"
     );
     $self->{lookup_sth} = $self->{dbh}->prepare(
         "SELECT * FROM $self->{capability_table_name} WHERE name = ? AND deviceid = ?"
@@ -392,30 +405,182 @@ sub _fallback
     return $self->_fallback( $fallback, $name );
 }
 
-sub canonical_ua
-{
+sub canonical_ua {
+    my ($self, $ua) = @_;
+    my $method = $self->{canonical_ua_default_method};
+
+    return $self->$method($ua);
+}
+
+=head2 canonical_ua_incremental
+
+An implementation of L</canonical_ua> which finds the best exact-match user
+agent string in the DB by shortening the supplied C<$ua> one character at a
+time until an exact match in the DB is discovered. Each test results in a
+separate SQL query, L</canonical_ua_binary> may be substantially faster.
+
+C<canonical_ua_incremental> was originally named L</canonical_ua> in
+L<Mobile::Wurfl> versions prior to 2.0. L</canonical_ua> still delegates 
+here by default - this can be overridden with the C<canonical_ua_default_method>
+constructor option.
+
+=cut
+
+sub canonical_ua_incremental {
     no warnings 'recursion';
     my $self = shift;
-    my $ua = shift;
+    my $ua   = shift;
     $self->_init();
-    $self->{deviceid_sth}->execute( $ua );
+    $self->{deviceid_sth}->execute($ua);
     my $deviceid = $self->{deviceid_sth}->fetchrow;
-    if ( $deviceid )
-    {
+    if ($deviceid) {
         $self->log_debug("$ua found");
         return $ua;
     }
-    else {
-        #$self->log_debug("ua not found: " . ($ua || ''));
-    }
     $ua = substr( $ua, 0, -1 );
+
     # $ua =~ s/^(.+)\/(.*)$/$1\// ;
-    unless ( length $ua )
-    {
+    unless ( length $ua ) {
         $self->log_debug("can't find canonical user agent");
         return;
     }
-    return $self->canonical_ua( $ua );
+    return $self->canonical_ua_incremental($ua);
+}
+
+=head2 canonical_ua_binary
+
+An implementation of L</canonical_ua> which uses a binary search approach to
+drastically reduce the number of database queries on long or uncommon user
+agent strings. However, for this to have an advantage over
+L</canonical_ua_incremental> you may need to create special indexes on the
+C<device.user_agent> column to aid the SQL C<LIKE 'Foo%'> queries used in this
+method. For example, SQLite users will need an C<COLLATE NOCASE> index in order
+for C<LIKE> queries to have a chance of being optimized (see
+L<http://www.sqlite.org/optoverview.html#like_opt> for more), Eg:
+
+  CREATE INDEX user_agent_idx ON device (user_agent COLLATE NOCASE);
+
+Once the binary search phase yields the longest truncated version of C<$ua>
+which has a match to the beginning of one or more UAs in the DB, C<$ua> is
+further truncated character-by-character until an exact match is found in the
+DB.
+
+If the number of partial matches to the truncated C<$ua> in the DB exceeds
+C<<<<< $self->{canonical_ua_fetch_max} >>>>> (constructor option - default: 100)
+then the partial C<$ua> string is passed to L</canonical_ua_incremental>.
+
+Otherwise, we assume it's faster to C<fetch_all_arrayref> and hunt for an exact
+string match in memory. This is algorithmically equivalent to
+L</canonical_ua_incremental>, except that we reduce the number of DB queries.
+
+=cut
+
+sub canonical_ua_binary {
+    my ($self, $ua) = @_;
+    my ($partial_ua) = $self->_canonical_ua_binary($ua);
+    my $fetch_max = $self->{canonical_ua_fetch_max};
+    my $partial_ua_escaped = $partial_ua;
+    my $partial_ua_matches;
+    my $canon_ua;
+
+    $partial_ua_escaped =~ s/\%/\[\%\]/g; # SQL-escape % chars
+    $self->{deviceid_like_count_sth}->execute($partial_ua_escaped . '%');
+    ($partial_ua_matches) = $self->{deviceid_like_count_sth}->fetchrow;
+
+    # If there's lots of partial_ua_matches, we might be better off just calling
+    # the old incremental search
+    if ($partial_ua_matches > $fetch_max) {
+        $self->log_debug(
+            "Delegating to canonical_ua_incremental...\n"
+          . "partial_ua_matches: $partial_ua_matches, fetch_max: $fetch_max, "
+          . 'length(partial_ua): ' . length($partial_ua)
+      );
+        $canon_ua = $self->canonical_ua_incremental($partial_ua);
+    }
+    else {
+        ($canon_ua) = $self->_canonical_ua_incremental_fetchall(
+            $partial_ua, $partial_ua_escaped
+        );
+    }
+
+    return $canon_ua;
+}
+
+#BROKEN
+sub _canonical_ua_incremental_fetchall {
+    my ($self, $ua, $ua_escaped) = @_;
+    my $fetch_max = $self->{canonical_ua_fetch_max};
+    my $test_ua = $ua;
+    my $canon_ua;
+    my $canon_id;
+    my $rows;
+    my %db;
+
+    $self->{deviceid_like_sth}->execute( $ua_escaped . '%' );
+    $rows = $self->{deviceid_like_sth}->fetchall_arrayref;
+    %db = map { $_->[0] => $_->[1] } @{$rows};
+
+    require Data::Dumper;
+    $self->log_debug(
+        Data::Dumper->Dump([\%db])
+    );
+    while (!$canon_ua && length($test_ua)) {
+        if (exists $db{$test_ua}) {
+            $self->log_debug("Matched on  '$test_ua'");
+            $canon_ua = $test_ua;
+            $canon_id = $db{$test_ua};
+        }
+        else {
+            $self->log_debug("No match on '$test_ua'");
+            $test_ua = substr($test_ua, 0, -1);
+        }
+    }
+
+    return ($canon_ua, $canon_id);
+}
+
+sub _canonical_ua_binary{
+    my ($self, $ua) = @_;
+    my $ua_pos_min = 0;
+    my $ua_pos_max = 2 * length($ua);
+    my $maxhit_ua = '';
+    my $maxhit_deviceid;
+    my $maxhit_deviceid_ua;
+
+    $self->_init();
+    while ($ua_pos_min <= $ua_pos_max) {
+        my $ua_pos_mid = int(($ua_pos_min + $ua_pos_max) / 2);
+        my $trial_ua = substr($ua, 0, $ua_pos_mid);
+        my $trial_ua_escaped = $trial_ua;
+        my ($deviceid, $deviceid_ua);
+
+        $trial_ua_escaped =~ s/\%/\[\%\]/g; # SQL-escape % chars
+        $self->{deviceid_like_sth}->execute( $trial_ua_escaped . '%' );
+        ($deviceid, $deviceid_ua) = $self->{deviceid_like_sth}->fetchrow;
+
+        if ($deviceid) {
+            $self->log_debug("search, UA hit:  $trial_ua");
+            #$self->log_debug( "\t(deviceid: $deviceid, deviceid_ua: $deviceid_ua)");
+            if (length($trial_ua) > length($maxhit_ua)) {
+                $maxhit_ua = $trial_ua;
+                $maxhit_deviceid = $deviceid;
+                $maxhit_deviceid_ua = $deviceid_ua;
+            }
+            $ua_pos_min = $ua_pos_mid + 1;
+        }
+        else {
+            $self->log_debug('search, UA miss: ' . ( $trial_ua || '' ));
+            $ua_pos_max = $ua_pos_mid - 1;
+        }
+    }
+    if ( length $maxhit_ua ) {
+        $self->log_debug("UA maximum hit: $maxhit_ua" );
+    }
+    else {
+        $self->log_debug("can't find canonical user agent");
+    }
+
+    return ($maxhit_ua, $maxhit_deviceid, $maxhit_deviceid_ua);
 }
 
 sub device
