@@ -50,7 +50,6 @@ sub new
         capability_table_name => 'capability',
         verbose => 0,
         canonical_ua_default_method => 'canonical_ua_incremental',
-        canonical_ua_fetch_max => 100,
         @_
     );
     if ( !exists $opts{wurfl_home} ) {
@@ -461,82 +460,36 @@ L<http://www.sqlite.org/optoverview.html#like_opt> for more), Eg:
   CREATE INDEX user_agent_idx ON device (user_agent COLLATE NOCASE);
 
 Once the binary search phase yields the longest truncated version of C<$ua>
-which has a match to the beginning of one or more UAs in the DB, C<$ua> is
-further truncated character-by-character until an exact match is found in the
-DB.
-
-If the number of partial matches to the truncated C<$ua> in the DB exceeds
-C<<<<< $self->{canonical_ua_fetch_max} >>>>> (constructor option - default: 100)
-then the partial C<$ua> string is passed to L</canonical_ua_incremental>.
-
-Otherwise, we assume it's faster to C<fetch_all_arrayref> and hunt for an exact
-string match in memory. This is algorithmically equivalent to
-L</canonical_ua_incremental>, except that we reduce the number of DB queries.
+which has a match to the beginning of one or more UAs in the DB, the partial
+C<$ua> is passed on to L</canonical_ua_incremental> to find an exact match in
+the DB.
 
 =cut
 
 sub canonical_ua_binary {
     my ($self, $ua) = @_;
     my ($partial_ua) = $self->_canonical_ua_binary($ua);
-    my $fetch_max = $self->{canonical_ua_fetch_max};
-    my $partial_ua_escaped = $partial_ua;
-    my $partial_ua_matches;
     my $canon_ua;
 
-    $partial_ua_escaped =~ s/\%/\[\%\]/g; # SQL-escape % chars
-    $self->{deviceid_like_count_sth}->execute($partial_ua_escaped . '%');
-    ($partial_ua_matches) = $self->{deviceid_like_count_sth}->fetchrow;
+    if (0) {
+        my $partial_ua_matches;
+        my $partial_ua_escaped = $partial_ua;
 
-    # If there's lots of partial_ua_matches, we might be better off just calling
-    # the old incremental search
-    if ($partial_ua_matches > $fetch_max) {
+        $partial_ua_escaped =~ s/\%/\[\%\]/g; # SQL-escape % chars
+        $self->{deviceid_like_count_sth}->execute($partial_ua_escaped . '%');
+        ($partial_ua_matches) = $self->{deviceid_like_count_sth}->fetchrow;
         $self->log_debug(
             "Delegating to canonical_ua_incremental...\n"
-          . "partial_ua_matches: $partial_ua_matches, fetch_max: $fetch_max, "
-          . 'length(partial_ua): ' . length($partial_ua)
-      );
-        $canon_ua = $self->canonical_ua_incremental($partial_ua);
-    }
-    else {
-        ($canon_ua) = $self->_canonical_ua_incremental_fetchall(
-            $partial_ua, $partial_ua_escaped
+          . "partial_ua_matches: $partial_ua_matches, length(partial_ua): "
+          . length($partial_ua)
         );
     }
+    $canon_ua = $self->canonical_ua_incremental($partial_ua);
+    $self->log_debug(
+        "canon_in:   $ua\ncanon_part: $partial_ua\ncanon_out:  " . ($canon_ua||'')
+    );
 
     return $canon_ua;
-}
-
-#BROKEN
-sub _canonical_ua_incremental_fetchall {
-    my ($self, $ua, $ua_escaped) = @_;
-    my $fetch_max = $self->{canonical_ua_fetch_max};
-    my $test_ua = $ua;
-    my $canon_ua;
-    my $canon_id;
-    my $rows;
-    my %db;
-
-    $self->{deviceid_like_sth}->execute( $ua_escaped . '%' );
-    $rows = $self->{deviceid_like_sth}->fetchall_arrayref;
-    %db = map { $_->[0] => $_->[1] } @{$rows};
-
-    require Data::Dumper;
-    $self->log_debug(
-        Data::Dumper->Dump([\%db])
-    );
-    while (!$canon_ua && length($test_ua)) {
-        if (exists $db{$test_ua}) {
-            $self->log_debug("Matched on  '$test_ua'");
-            $canon_ua = $test_ua;
-            $canon_id = $db{$test_ua};
-        }
-        else {
-            $self->log_debug("No match on '$test_ua'");
-            $test_ua = substr($test_ua, 0, -1);
-        }
-    }
-
-    return ($canon_ua, $canon_id);
 }
 
 sub _canonical_ua_binary{
