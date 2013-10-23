@@ -230,6 +230,18 @@ sub device_capabilities_timing_tests {
     return;
 }
 
+# Something delightfully short, caught in the wild.
+device_capabilities_timing_tests(
+    'LG-KU970/v1.0',
+    'LG-KU970',
+);
+
+# Something delightfully common, caught in the wild.
+device_capabilities_timing_tests(
+    'Mozilla/5.0 (Linux; U; Android 2.3.6; en-au; GT-S5830 Build/GINGERBREAD) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
+    'GT-S5830',
+);
+
 # Something obscure, caught in the wild.
 device_capabilities_timing_tests(
     'Nokia3600slide/2.0 (05.64) Profile/MIDP-2.1 Configuration/CLDC-1.1 Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0; SLCC2;.NET CLR 2.0.50727; .NET CLR 3.5.30729; .NET CLR 3.0.30729; Media Center PC 6.0; InfoPath.2) UCBrowser8.2.1.144/70/355',
