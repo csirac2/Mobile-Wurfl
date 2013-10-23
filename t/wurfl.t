@@ -10,9 +10,11 @@ use Git::Repository();
 use File::Temp();
 use File::Spec();
 use File::Copy();
+use File::Basename();
 
 use lib 'lib';
 
+my $t_path = File::Basename::dirname(__FILE__); # Figure out where t/ lives
 my $wurfl_home = File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1);
 my $create_sql = <<EOF;
 DROP TABLE IF EXISTS capability;
@@ -130,11 +132,13 @@ for my $cap ( @capabilities )
 # clone it to somewhere where we can get at it.
 sub get_free_wurfl_file {
     my $xml_fname = '2011-04-24-wurfl.xml';
-    my $xml_path = File::Spec->catfile($wurfl_home, $xml_fname);
+    my $xml_path;
+    my $xml_path_from_t = File::Spec->catfile($t_path, $xml_fname);
 
-    if ( -e $xml_fname ) {
-        print "# Copying existing '$xml_fname' into '$wurfl_home'...\n";
-        File::Copy::copy($xml_fname, $xml_path) or die $!;
+    if ( -e $xml_path_from_t ) {
+        $xml_path = File::Spec->catfile($wurfl_home, $xml_fname);
+        print "#   Copying existing '$xml_path_from_t' into '$wurfl_home'...\n";
+        File::Copy::copy($xml_path_from_t, $xml_path) or die $!;
     }
     else {
         my $git_url = 'git://github.com/bdelacretaz/wurfl';
@@ -144,19 +148,20 @@ sub get_free_wurfl_file {
             'github.com-bdelacretaz-wurfl', ''
         );
         my $xml_git_path = File::Spec->catfile($git_dir, $xml_fname);
+        $xml_path = File::Spec->catfile($wurfl_home, $xml_fname);
 
         print <<"HERE";
-# '$xml_fname' not found - trying to git-clone it from
-# '$git_url' into '$git_dir'
+#   '$xml_path_from_t' not found - trying to git-clone it from
+#   '$git_url' into '$git_dir'
 HERE
         Git::Repository->run( clone => $git_url, $git_dir );
         print "# Copying '$xml_git_path' into '$wurfl_home'...\n";
         File::Copy::copy($xml_git_path, $xml_path) or die $!;
     }
-    print "# Full path to '$xml_fname' is '$xml_path'\n";
+    print "#   Full path to '$xml_fname' is '$xml_path'\n";
 
     return $xml_path;
 }
 
-eval { $wurfl->cleanup() };
-ok( ! $@ , "cleanup: $@" );
+ok( eval { $wurfl->cleanup(); 1; }, "cleanup");
+print '#   cleanup error: ' . $@ if ($@);
