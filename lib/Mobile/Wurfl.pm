@@ -21,18 +21,16 @@ my %tables = (
     device => [ qw( id actual_device_root user_agent fall_back ) ],
     capability => [ qw( groupid name value deviceid ) ],
 );
-my $log_verbosity;
-my $log_fh;
 
 sub log_debug {
-    my ($self, $omsg) = @_;
+    my ($self, $msg) = @_;
 
-    if ( $log_verbosity ) {
-       if ($log_verbosity == 1 ) {
-            print $log_fh ($omsg || $self) . "\n";
+    if ( $self->{verbose} ) {
+       if ($self->{verbose} == 1 ) {
+            print $self->{log_fh} ($msg || $self) . "\n";
         }
         else {
-            print STDERR ($omsg || $self) . "\n";
+            print STDERR ($msg || $self) . "\n";
         }
     }
 
@@ -49,27 +47,26 @@ sub new
         device_table_name => 'device',
         capability_table_name => 'capability',
         verbose => 0,
-        canonical_ua_default_method => 'canonical_ua_incremental',
+        canonical_ua_method => 'canonical_ua_incremental',
         @_
     );
     if ( !exists $opts{wurfl_home} ) {
         $opts{wurfl_home} =
-            File::Temp::tempdir( 'wurfl_home_XXXX', CLEANUP => 1 );
+            File::Temp->newdir( 'wurfl_home_XXXX', CLEANUP => 1 );
     }
 
     my $self = bless \%opts, $class;
-    if (! $self->can($self->{canonical_ua_default_method})) {
+    if (! $self->can($self->{canonical_ua_method})) {
         die 'Don\'t know how to \$self->' .
-            ( $self->{canonical_ua_default_method} || '?');
+            ( $self->{canonical_ua_method} || '?');
     }
 
-    $log_verbosity = $self->{verbose};
-    if ($log_verbosity == 1) {
-        open( $log_fh, '>',
+    if ($self->{verbose} == 1 && !$self->{log_fh} ) {
+        open( $self->{log_fh}, '>',
             File::Spec->catfile($self->{wurfl_home}, 'wurfl.log')
         );
     }
-    $class->log_debug("connecting to $self->{db_descriptor} as $self->{db_username}");
+    $self->log_debug("connecting to $self->{db_descriptor} as $self->{db_username}");
     $self->{dbh} ||= DBI->connect( 
         $self->{db_descriptor},
         $self->{db_username},
@@ -406,7 +403,7 @@ sub _fallback
 
 sub canonical_ua {
     my ($self, $ua) = @_;
-    my $method = $self->{canonical_ua_default_method};
+    my $method = $self->{canonical_ua_method};
 
     return $self->$method($ua);
 }
@@ -420,7 +417,7 @@ separate SQL query, L</canonical_ua_binary> may be substantially faster.
 
 C<canonical_ua_incremental> was originally named L</canonical_ua> in
 L<Mobile::Wurfl> versions prior to 2.0. L</canonical_ua> still delegates 
-here by default - this can be overridden with the C<canonical_ua_default_method>
+here by default - this can be overridden with the C<canonical_ua_method>
 constructor option.
 
 =cut
@@ -596,6 +593,36 @@ sub cleanup
             $self->{dbh}->do( "DROP TABLE IF EXISTS $_" );
         }
     }
+
+    # List of all data members
+    $self->{ua}                      = undef;
+    $self->{log_fh}                  = undef;
+    $self->{verbose}                 = undef;
+    $self->{initialized}             = undef;
+    $self->{canonical_ua_method}     = undef;
+    $self->{wurfl_home}              = undef;
+    $self->{wurfl_file}              = undef;
+    $self->{wurfl_url}               = undef;
+    $self->{dbh}                     = undef;
+    $self->{db_descriptor}           = undef;
+    $self->{db_username}             = undef;
+    $self->{db_password}             = undef;
+    $self->{device_table_name}       = undef;
+    $self->{capability_table_name}   = undef;
+    $self->{devices}                 = undef;
+    $self->{capabilities}            = undef;
+    $self->{last_update_sth}         = undef;
+    $self->{user_agents_sth}         = undef;
+    $self->{devices_sth}             = undef;
+    $self->{device_sth}              = undef;
+    $self->{deviceid_sth}            = undef;
+    $self->{deviceid_like_sth}       = undef;
+    $self->{deviceid_like_count_sth} = undef;
+    $self->{lookup_sth}              = undef;
+    $self->{fall_back_sth}           = undef;
+    $self->{groups_sth}              = undef;
+    $self->{group_capabilities_sth}  = undef;
+    $self->{capabilities_sth}        = undef;
     return unless $self->{wurfl_file};
     return unless -e $self->{wurfl_file};
     $self->log_debug("unlink $self->{wurfl_file}");
@@ -710,7 +737,7 @@ The list of possible options are as follows:
 
 =item wurfl_home
 
-Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<<<< File::Temp::tempdir('wurfl_home_XXXX', CLEANUP => 1) >>>>.
+Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<<<< File::Temp->newdir('wurfl_home_XXXX', CLEANUP => 1) >>>>.
 
 =item db_descriptor
 

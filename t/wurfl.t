@@ -208,7 +208,7 @@ sub get_new_wurfl {
     my ($method) = @_;
 
     return Mobile::Wurfl->new(
-        canonical_ua_default_method => $method,
+        canonical_ua_method => $method,
         map { $_ => $wurfl->{$_} } (qw(wurfl_url wurfl_home),
            qw(db_descriptor db_username db_password verbose))
     );
