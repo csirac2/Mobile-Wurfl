@@ -219,7 +219,7 @@ sub rebuild_tables
 
     my $local = ($self->get_local_stats())[1];
     my $last_update = $self->last_update();
-    if ( $local <= $last_update )
+    if ( $last_update && $local <= $last_update )
     {
         $self->log_debug("$self->{wurfl_file} has not changed since the last database update");
         return 0;
