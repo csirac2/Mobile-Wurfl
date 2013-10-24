@@ -23,14 +23,14 @@ my %tables = (
 );
 
 sub log_debug {
-    my ($self, $msg) = @_;
+    my ( $self, $msg ) = @_;
 
     if ( $self->{verbose} ) {
-       if ($self->{verbose} == 1 ) {
-            print $self->{log_fh} ($msg || $self) . "\n";
+        if ( $self->{verbose} == 1 ) {
+            print $self->{log_fh}( $msg || $self ) . "\n";
         }
         else {
-            print STDERR ($msg || $self) . "\n";
+            print STDERR ( $msg || $self ) . "\n";
         }
     }
 
@@ -52,19 +52,18 @@ sub new
     );
     if ( !exists $opts{wurfl_home} ) {
         $opts{wurfl_home} =
-            File::Temp->newdir( 'wurfl_home_XXXX', CLEANUP => 1 );
+          File::Temp->newdir( 'wurfl_home_XXXX', CLEANUP => 1 );
     }
 
     my $self = bless \%opts, $class;
-    if (! $self->can($self->{canonical_ua_method})) {
-        die 'Don\'t know how to \$self->' .
-            ( $self->{canonical_ua_method} || '?');
+    if ( !$self->can( $self->{canonical_ua_method} ) ) {
+        die 'Don\'t know how to \$self->'
+          . ( $self->{canonical_ua_method} || '?' );
     }
 
-    if ($self->{verbose} == 1 && !$self->{log_fh} ) {
+    if ( $self->{verbose} == 1 && !$self->{log_fh} ) {
         open( $self->{log_fh}, '>',
-            File::Spec->catfile($self->{wurfl_home}, 'wurfl.log')
-        );
+            File::Spec->catfile( $self->{wurfl_home}, 'wurfl.log' ) );
     }
     $self->log_debug("connecting to $self->{db_descriptor} as $self->{db_username}");
     $self->{dbh} ||= DBI->connect( 
@@ -402,7 +401,7 @@ sub _fallback
 }
 
 sub canonical_ua {
-    my ($self, $ua) = @_;
+    my ( $self, $ua ) = @_;
     my $method = $self->{canonical_ua_method};
 
     return $self->$method($ua);
@@ -443,6 +442,7 @@ sub canonical_ua_incremental {
     return $self->canonical_ua_incremental($ua);
 }
 
+
 =head2 canonical_ua_binary
 
 An implementation of L</canonical_ua> which uses a binary search approach to
@@ -464,7 +464,7 @@ the DB.
 =cut
 
 sub canonical_ua_binary {
-    my ($self, $ua) = @_;
+    my ( $self, $ua ) = @_;
     my ($partial_ua) = $self->_canonical_ua_binary($ua);
     my $canon_ua;
 
@@ -472,65 +472,64 @@ sub canonical_ua_binary {
         my $partial_ua_matches;
         my $partial_ua_escaped = $partial_ua;
 
-        $partial_ua_escaped =~ s/\%/\[\%\]/g; # SQL-escape % chars
-        $self->{deviceid_like_count_sth}->execute($partial_ua_escaped . '%');
+        $partial_ua_escaped =~ s/\%/\[\%\]/g;    # SQL-escape % chars
+        $self->{deviceid_like_count_sth}->execute( $partial_ua_escaped . '%' );
         ($partial_ua_matches) = $self->{deviceid_like_count_sth}->fetchrow;
-        $self->log_debug(
-            "Delegating to canonical_ua_incremental...\n"
-          . "partial_ua_matches: $partial_ua_matches, length(partial_ua): "
-          . length($partial_ua)
-        );
+        $self->log_debug( "Delegating to canonical_ua_incremental...\n"
+              . "partial_ua_matches: $partial_ua_matches, length(partial_ua): "
+              . length($partial_ua) );
     }
     $canon_ua = $self->canonical_ua_incremental($partial_ua);
     $self->log_debug(
-        "canon_in:   $ua\ncanon_part: $partial_ua\ncanon_out:  " . ($canon_ua||'')
-    );
+        "canon_in:   $ua\ncanon_part: $partial_ua\ncanon_out:  "
+          . ( $canon_ua || '' ) );
 
     return $canon_ua;
 }
 
-sub _canonical_ua_binary{
-    my ($self, $ua) = @_;
+sub _canonical_ua_binary {
+    my ( $self, $ua ) = @_;
     my $ua_pos_min = 0;
     my $ua_pos_max = 2 * length($ua);
-    my $maxhit_ua = '';
+    my $maxhit_ua  = '';
     my $maxhit_deviceid;
     my $maxhit_deviceid_ua;
 
     $self->_init();
-    while ($ua_pos_min <= $ua_pos_max) {
-        my $ua_pos_mid = int(($ua_pos_min + $ua_pos_max) / 2);
-        my $trial_ua = substr($ua, 0, $ua_pos_mid);
+    while ( $ua_pos_min <= $ua_pos_max ) {
+        my $ua_pos_mid = int( ( $ua_pos_min + $ua_pos_max ) / 2 );
+        my $trial_ua = substr( $ua, 0, $ua_pos_mid );
         my $trial_ua_escaped = $trial_ua;
-        my ($deviceid, $deviceid_ua);
+        my ( $deviceid, $deviceid_ua );
 
-        $trial_ua_escaped =~ s/\%/\[\%\]/g; # SQL-escape % chars
+        $trial_ua_escaped =~ s/\%/\[\%\]/g;    # SQL-escape % chars
         $self->{deviceid_like_sth}->execute( $trial_ua_escaped . '%' );
-        ($deviceid, $deviceid_ua) = $self->{deviceid_like_sth}->fetchrow;
+        ( $deviceid, $deviceid_ua ) = $self->{deviceid_like_sth}->fetchrow;
 
         if ($deviceid) {
-            $self->log_debug("search, UA hit:  $trial_ua");
-            #$self->log_debug( "\t(deviceid: $deviceid, deviceid_ua: $deviceid_ua)");
-            if (length($trial_ua) > length($maxhit_ua)) {
-                $maxhit_ua = $trial_ua;
-                $maxhit_deviceid = $deviceid;
+            $self->log_debug("binary search, hit:  $trial_ua");
+
+       #$self->log_debug( "\t(deviceid: $deviceid, deviceid_ua: $deviceid_ua)");
+            if ( length($trial_ua) > length($maxhit_ua) ) {
+                $maxhit_ua          = $trial_ua;
+                $maxhit_deviceid    = $deviceid;
                 $maxhit_deviceid_ua = $deviceid_ua;
             }
             $ua_pos_min = $ua_pos_mid + 1;
         }
         else {
-            $self->log_debug('search, UA miss: ' . ( $trial_ua || '' ));
+            $self->log_debug( 'binary search, miss: ' . ( $trial_ua || '' ) );
             $ua_pos_max = $ua_pos_mid - 1;
         }
     }
     if ( length $maxhit_ua ) {
-        $self->log_debug("UA maximum hit: $maxhit_ua" );
+        $self->log_debug("UA maximum hit: $maxhit_ua");
     }
     else {
         $self->log_debug("can't find canonical user agent");
     }
 
-    return ($maxhit_ua, $maxhit_deviceid, $maxhit_deviceid_ua);
+    return ( $maxhit_ua, $maxhit_deviceid, $maxhit_deviceid_ua );
 }
 
 sub device
