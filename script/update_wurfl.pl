@@ -151,9 +151,9 @@ __END__
  OPTIONS
    --home     REQUIRED wurfl_home    working dir
    --url      REQUIRED wurfl_url     to wurfl XML data. May be a filename
-   --dsn      REQUIRED db_descriptor DB connection as understood by DBI.
-   --username db_username for the db_descriptor connection
-   --password db_password for the db_descriptor connection
+   --dsn      REQUIRED db_descriptor DB connection as understood by DBI
+   --username db_username            for the db_descriptor connection
+   --password db_password            for the db_descriptor connection
    --help     brief help message
    --man      full documentation
 
