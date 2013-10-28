@@ -8,8 +8,8 @@ my $module_name        = 'Mobile::Wurfl::SQL';
 my $script_path        = File::Basename::dirname(__FILE__);
 my @script_path_dirs   = File::Spec->splitdir($script_path);
 my $script_path_parent = File::Spec->catdir(
-    scalar( @script_path_dirs[ 0 .. -1 ] )
-    ? ( @script_path_dirs[ 0 .. -1 ] )
+    scalar( @script_path_dirs[ 0 .. $#script_path_dirs - 1 ] )
+    ? ( @script_path_dirs[ 0 .. $#script_path_dirs - 1 ] )
     : '.'
 );
 
