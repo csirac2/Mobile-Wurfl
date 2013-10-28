@@ -1,2 +1,5 @@
 t/*.xml
 Mobile-Wurfl-*
+perltidy.LOG
+*.bak
+.*.swp
