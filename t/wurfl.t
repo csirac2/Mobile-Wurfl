@@ -249,6 +249,8 @@ sub device_capabilities_timing_tests {
 
 device_capabilities_timing_tests( 'LG-KU970/v1.0', '"short" LG-KU970', );
 
+device_capabilities_timing_tests( 'SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1', '"documented" Ericsson750i', );
+
 device_capabilities_timing_tests(
 'Mozilla/5.0 (Linux; U; Android 2.3.6; en-au; GT-S5830 Build/GINGERBREAD) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
     '"common" GT-S5830',

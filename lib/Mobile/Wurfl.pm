@@ -430,20 +430,6 @@ sub canonical_ua {
     return $self->$method($ua);
 }
 
-=head2 canonical_ua_incremental
-
-An implementation of L</canonical_ua> which finds the best exact-match user
-agent string in the DB by shortening the supplied C<$ua> one character at a
-time until an exact match in the DB is discovered. Each test results in a
-separate SQL query, L</canonical_ua_binary> may be substantially faster.
-
-C<canonical_ua_incremental> was originally named L</canonical_ua> in
-L<Mobile::Wurfl> versions prior to 2.0. L</canonical_ua> still delegates 
-to this method by default - which can be overridden with the
-C<canonical_ua_method> constructor option.
-
-=cut
-
 sub canonical_ua_incremental {
     no warnings 'recursion';
     my $self = shift;
@@ -464,27 +450,6 @@ sub canonical_ua_incremental {
     }
     return $self->canonical_ua_incremental($ua);
 }
-
-
-=head2 canonical_ua_binary
-
-An implementation of L</canonical_ua> which uses a binary search approach to
-drastically reduce the number of database queries on long or uncommon user
-agent strings. However, for this to have an advantage over
-L</canonical_ua_incremental> you may need to create special indexes on the
-C<device.user_agent> column to aid the SQL C<LIKE 'Foo%'> queries used in this
-method. For example, SQLite users will need an C<COLLATE NOCASE> index in order
-for C<LIKE> queries to have a chance of being optimized (see
-L<http://www.sqlite.org/optoverview.html#like_opt> for more), Eg:
-
-  CREATE INDEX user_agent_idx ON device (user_agent COLLATE NOCASE);
-
-Once the binary search phase yields the longest truncated version of C<$ua>
-which has a match to the beginning of one or more UAs in the DB, the partial
-C<$ua> is passed on to L</canonical_ua_incremental> to find an exact match in
-the DB.
-
-=cut
 
 sub canonical_ua_binary {
     my ( $self, $ua ) = @_;
@@ -830,20 +795,74 @@ This method returns a list of the capabilities in a group in WURFL. If no group 
 
 =head2 canonical_ua( ua_string )
 
-This method takes a user agent string as an argument, and tries to find a matching "canonical" user agent in WURFL. It does this simply by recursively doing a lookup on the string, and if this fails, chopping anything after and including the last "/" in the string. So, for example, for the user agent string:
+This method takes a user agent string as an argument, and tries to find a matching "canonical" user agent in WURFL. It is a simple wrapper to one of two algorithms; the default is C<canonical_ua_incremental> but may also be set to C<canonical_ua_binary>, which is usually faster as it performs fewer database queries (especially on longer strings). For caveats, see the L</canonical_ua_binary> documentation
 
+Set the desired algorithm in the C<canonical_ua_method> constructor option:
+    my $wurfl = Mobile::Wurfl->new(
+        canonical_ua_method => 'canonical_ua_binary',
+        wurfl_url => $url,
+        db_descriptor => ....
+
+=head2 canonical_ua_incremental
+
+An implementation of L</canonical_ua> which finds the best exact-match user
+agent string in the DB by shortening the supplied C<$ua> one character at a
+time until an exact match in the DB is discovered. Each test results in a
+separate SQL query, L</canonical_ua_binary> may be substantially faster.
+
+C<canonical_ua_incremental> was originally named L</canonical_ua> in
+L<Mobile::Wurfl> versions prior to 2.0. L</canonical_ua> still delegates 
+to this method by default - which can be overridden with the
+C<canonical_ua_method> constructor option.
+
+Given:
     SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1
 
-the canonical_ua method would try the following:
-
+This method would try the following:
     SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1
-    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration
-    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile
-    SonyEricssonK750i/R1J Browser/SEMC-Browser
-    SonyEricssonK750i/R1J Browser
+    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.
+    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1
+    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-
+    ... 66 queries later ...
     SonyEricssonK750i
 
 until it found a user agent string in WURFL, and then return it (or return undef if none were found). In the above case (for WURFL v2.0) it returns the string "SonyEricssonK750i".
+
+=head2 canonical_ua_binary
+
+An implementation of L</canonical_ua> which uses a binary search approach to
+drastically reduce the number of database queries on long or uncommon user
+agent strings. However, for this to have an advantage over
+L</canonical_ua_incremental> you may need to create special indexes on the
+C<device.user_agent> column to aid the SQL C<LIKE 'Foo%'> queries used in this
+method. For example, SQLite users will need an C<COLLATE NOCASE> index in order
+for C<LIKE> queries to have a chance of being optimized (see
+L<http://www.sqlite.org/optoverview.html#like_opt> for more), Eg:
+
+  CREATE INDEX user_agent_idx ON device (user_agent COLLATE NOCASE);
+
+Once the binary search phase yields the longest truncated version of C<$ua>
+which has a match to the beginning of one or more UAs in the DB, the partial
+C<$ua> is passed on to L</canonical_ua_incremental> to find an exact match in
+the DB.
+
+Given:
+    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1
+
+This method would try the following:
+    SonyEricssonK750i/R1J Browser/SEMC-Browser/4.2 Profile/MIDP-2.0 Configuration/CLDC-1.1
+    SonyEricssonK750i/R1J Browser/SEMC-Browser
+    SonyEricssonK750i/R1
+    SonyEricssonK750i/R1J Browser/S
+    SonyEricssonK750i/R1J Bro
+    SonyEricssonK750i/R1J 
+    SonyEricssonK750i/R1J
+    SonyEricssonK750i/R1 # There is a UA in the DB which begins with this string
+    SonyEricssonK750i/R  # using canonical_ua_incremental
+    SonyEricssonK750i/   # using canonical_ua_incremental
+    SonyEricssonK750i    # using canonical_ua_incremental
+
+=cut
 
 =head2 deviceid( ua_string )
 
