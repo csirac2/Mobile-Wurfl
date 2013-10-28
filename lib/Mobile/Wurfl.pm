@@ -5,11 +5,9 @@ $VERSION = '2.00';
 use strict;
 use warnings;
 use DBI;
-use DBD::mysql;
 use XML::Parser;
 use LWP::UserAgent();
 use HTTP::Date;
-use Template;
 use File::Spec;
 use File::Basename;
 use IO::Uncompress::Unzip qw(unzip $UnzipError);;
@@ -41,7 +39,7 @@ sub new
 {
     my $class = shift;
     my %opts = (
-        db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
+        db_descriptor => 'DBI:SQLite:dbname=$wurfl_home/wurfl.sqlite.db',
         db_username => 'wurfl',
         db_password => 'wurfl',
         device_table_name => 'device',
@@ -50,7 +48,7 @@ sub new
         canonical_ua_method => 'canonical_ua_incremental',
         @_
     );
-    if ( !exists $opts{wurfl_home} ) {
+    if ( !defined $opts{wurfl_home} ) {
         $opts{wurfl_home} =
           File::Temp->newdir( 'wurfl_home_XXXX', CLEANUP => 1 );
     }
@@ -65,6 +63,7 @@ sub new
         open( $self->{log_fh}, '>',
             File::Spec->catfile( $self->{wurfl_home}, 'wurfl.log' ) );
     }
+    $self->{db_descriptor} =~ s/\$wurfl_home\b/$self->{wurfl_home}/g;
     $self->log_debug("connecting to $self->{db_descriptor} as $self->{db_username}");
     $self->{dbh} ||= DBI->connect( 
         $self->{db_descriptor},
@@ -171,15 +170,39 @@ sub get
     return $self->{$opt};
 }
 
+sub _mangle_sql_names {
+    my ( $self, $sql ) = @_;
+    my %replace = (
+        device     => $self->{device_table_name},
+        capability => $self->{capability_table_name},
+    );
+    my @list;
+
+    foreach my $token ( keys %replace ) {
+        if ( $token ne $self->{ $token . '_table_name' } ) {
+            push( @list, $token );
+        }
+    }
+    if ( scalar(@list) ) {
+        my $search_tokens = '\b' . join( '\b|\b', @list ) . '\b';
+
+       #$sql =~ s/($search_tokens)/print "$1 -> $replace{$1}"; $replace{$1};/ge;
+        $sql =~ s/($search_tokens)/$replace{$1};/gem;
+    }
+
+    return $sql;
+}
+
 sub create_tables
 {
     my $self = shift;
     my $sql = shift;
     unless ( $sql )
     {
-        my $tt = Template->new();
-        my $template = join( '', <DATA> );
-        $tt->process( \$template, $self, \$sql ) or die $tt->error;
+        require Mobile::Wurfl::SQL;
+        my ( undef, $driver ) = DBI->parse_dsn( $self->{db_descriptor} );
+        $sql = Mobile::Wurfl::SQL->get($driver);
+        $sql = $self->_mangle_sql_names($sql);
     }
     for my $statement ( split( /\s*;\s*/, $sql ) )
     {
@@ -416,8 +439,8 @@ separate SQL query, L</canonical_ua_binary> may be substantially faster.
 
 C<canonical_ua_incremental> was originally named L</canonical_ua> in
 L<Mobile::Wurfl> versions prior to 2.0. L</canonical_ua> still delegates 
-here by default - this can be overridden with the C<canonical_ua_method>
-constructor option.
+to this method by default - which can be overridden with the
+C<canonical_ua_method> constructor option.
 
 =cut
 
@@ -644,13 +667,17 @@ NB: The sourceforge wurfl_url link below is dead - see L</"IMPORTANT - WURFL DAT
 
     my $wurfl = Mobile::Wurfl->new(
         wurfl_home => "/path/to/wurfl/home",
-        db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
-        db_username => 'wurfl',
-        db_password => 'wurfl',
+
+        # db_descriptor: $wurfl_home is expanded before being passed to DBI
+        db_descriptor => 'DBI:SQLite=$wurfl_home/wurfl.sqlite.db',
+        # db_username/db_password: unnecessary for DBI:SQLite
+        # db_username => 'wurfl',
+        # db_password => 'wurfl',
         wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},
     );
 
-    my $dbh = DBI->connect( $db_descriptor, $db_username, $db_password );
+    # db_descriptor: an example connecting to MySQL
+    my $dbh = DBI->connect( "DBI:mysql;database=wurfl;host=localhost", $db_username, $db_password );
     my $wurfl = Mobile::Wurfl->new( dbh => $dbh );
 
     my $desc = $wurfl->get( 'db_descriptor' );
@@ -686,7 +713,7 @@ NB: The sourceforge wurfl_url link below is dead - see L</"IMPORTANT - WURFL DAT
 
 =head1 DESCRIPTION
 
-Mobile::Wurfl is a perl module that provides an interface to mobile device information represented in wurfl (L<http://wurfl.sourceforge.net/>). The Mobile::Wurfl module works by saving this device information in a database (preferably mysql).
+Mobile::Wurfl is a perl module that provides an interface to mobile device information represented in wurfl (L<http://wurfl.sourceforge.net/>). The Mobile::Wurfl module works by saving this device information in a database supported by L<DBI> (for example: SQLite, MySQL, PostgreSQL, etc).
 
 It offers an interface to create the relevant database tables from a SQL file containing "CREATE TABLE" statements (a sample is provided with the distribution). It also provides a method for updating the data in the database from the wurfl xml files hosted by ScientiaMobile, Inc.
 
@@ -721,7 +748,7 @@ The Mobile::Wurfl constructor takes an optional list of named options; e.g.:
 
     my $wurfl = Mobile::Wurfl->new(
         wurfl_home => "/path/to/wurfl/home",
-        db_descriptor => "DBI:mysql:database=wurfl:host=localhost", 
+        db_descriptor => "DBI:mysql;database=wurfl;host=localhost",
         db_username => 'wurfl',
         db_password => 'wurfl',
         wurfl_url => q{http://sourceforge.net/projects/wurfl/files/WURFL/latest/wurfl-latest.xml.gz/download},,
@@ -736,11 +763,11 @@ The list of possible options are as follows:
 
 =item wurfl_home
 
-Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<<<< File::Temp->newdir('wurfl_home_XXXX', CLEANUP => 1) >>>>.
+Used to set the default home diretory for Mobile::Wurfl. This is where the cached copy of the wurfl.xml file is stored. It defaults to a random directory assigned by C<<< File::Temp->newdir('wurfl_home_XXXX', CLEANUP => 1) >>>.
 
 =item db_descriptor
 
-A database descriptor - as used by L<DBI> to define the type, host, etc. of database to connect to. This is where the data from wurfl.xml will be stored, in two tables - device and capability. The default is "DBI:mysql:database=wurfl:host=localhost" (i.e. a mysql database called wurfl, hosted on localhost.
+A database descriptor - as used by L<DBI> to define the type, host, etc. of database to connect to. This is where the data from wurfl.xml will be stored, in two tables - device and capability. The default is C<<<<<'DBI:SQLite=$wurfl_home/wurfl.sqlite.db'>>>>> (where C<$wurfl_home> is expanded before being passed on to L<DBI>), an MySQL example would be C<<<<<"DBI:mysql;database=wurfl;host=localhost">>>>> (i.e. a mysql database called wurfl, hosted on localhost).
 
 =item db_username
 
@@ -773,7 +800,9 @@ The set and get methods can be used to set / get values for the constructor opti
 
 =head2 create_tables
 
-The create_tables method is used to create the database tables required for Mobile::Wurfl to store the wurfl.xml data in. It can be passed as an argument a string containing appropriate SQL "CREATE TABLE" statements. If this is not passed, it uses appropriate statements for a mysql database (see __DATA__ section of the module for the specifics). This should only need to be called as part of the initial configuration.
+The create_tables method is used to create the database tables required for Mobile::Wurfl to store the wurfl.xml data in. It can be passed as an argument a string containing appropriate SQL "CREATE TABLE" statements. If this is not passed, L<Mobile::Wurfl::SQL> attempts to obtain an appropriate set of SQL statements for the DBI driver specified in the C<db_descriptor>. This should only need to be called as part of the initial configuration.
+
+At the time of writing there are schemas defined for PostgreSQL, SQLite and MySQL in the C<sql/> directory at the root of this installation - see C<sql/pg.sql>, C<sql/sqlite.sql> and C<sql/mysql.sql> respectively. If files here are added (name them lower-case C<driver.sql>) or modified, there is a script in C<script/update_sql.pl> to update/re-write the L<Mobile::Wurfl::SQL> package again. 
 
 =head2 update
 
@@ -861,27 +890,3 @@ itself.
 #------------------------------------------------------------------------------
 
 1;
-
-__DATA__
-
-DROP TABLE IF EXISTS [% capability_table_name %];
-CREATE TABLE [% capability_table_name %] (
-  name varchar(255) NOT NULL default '',
-  value varchar(255) default '',
-  groupid varchar(255) NOT NULL default '',
-  deviceid varchar(255) NOT NULL default '',
-  ts timestamp NOT NULL,
-  KEY groupid (groupid),
-  KEY name_deviceid (name,deviceid)
-) TYPE=InnoDB;
-
-DROP TABLE IF EXISTS [% device_table_name %];
-CREATE TABLE [% device_table_name %] (
-  user_agent varchar(255) NOT NULL default '',
-  actual_device_root enum('true','false') default 'false',
-  id varchar(255) NOT NULL default '',
-  fall_back varchar(255) NOT NULL default '',
-  ts timestamp NOT NULL,
-  KEY user_agent (user_agent),
-  KEY id (id)
-) TYPE=InnoDB;
