@@ -4,7 +4,7 @@ use warnings;
 
 my %SQL = (
     'pg' => <<'HERE'
--- Don't forget to re-run script/update_sql.pl script if you modify this
+-- Don't forget to re-run script/update_Mobile-Wurfl-SQL.pl script if you modify
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
     name char(255) NOT NULL default '',
@@ -30,7 +30,7 @@ CREATE INDEX IF NOT EXISTS id ON device (id);
 
 HERE
     , 'generic' => <<'HERE'
--- Don't forget to re-run script/update_sql.pl script if you modify this
+-- Don't forget to re-run script/update_Mobile-Wurfl-SQL.pl script if you modify
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
         name varchar(255) NOT NULL DEFAULT '',
@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS id ON device (id);
 
 HERE
     , 'mysql' => <<'HERE'
--- Don't forget to re-run script/update_sql.pl script if you modify this
+-- Don't forget to re-run script/update_Mobile-Wurfl-SQL.pl script if you modify
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
     name varchar(255) NOT NULL default '',
@@ -79,7 +79,7 @@ CREATE TABLE device (
 
 HERE
     , 'sqlite' => <<'HERE'
--- Don't forget to re-run script/update_sql.pl script if you modify this
+-- Don't forget to re-run script/update_Mobile-Wurfl-SQL.pl script if you modify
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
         name varchar(255) NOT NULL DEFAULT '',

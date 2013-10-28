@@ -767,7 +767,7 @@ The set and get methods can be used to set / get values for the constructor opti
 
 The create_tables method is used to create the database tables required for Mobile::Wurfl to store the wurfl.xml data in. It can be passed as an argument a string containing appropriate SQL "CREATE TABLE" statements. If this is not passed, L<Mobile::Wurfl::SQL> attempts to obtain an appropriate set of SQL statements for the DBI driver specified in the C<db_descriptor>. This should only need to be called as part of the initial configuration.
 
-At the time of writing there are schemas defined for PostgreSQL, SQLite and MySQL in the C<sql/> directory at the root of this installation - see C<sql/pg.sql>, C<sql/sqlite.sql> and C<sql/mysql.sql> respectively. If files here are added (name them lower-case C<driver.sql>) or modified, there is a script in C<script/update_sql.pl> to update/re-write the L<Mobile::Wurfl::SQL> package again. 
+At the time of writing there are schemas defined for PostgreSQL, SQLite and MySQL in the C<sql/> directory at the root of this installation - see C<sql/pg.sql>, C<sql/sqlite.sql> and C<sql/mysql.sql> respectively. If files here are added (name them lower-case C<driver.sql>) or modified, there is a script in C<script/update_Mobile-Wurfl-SQL.pl> to update/re-write the L<Mobile::Wurfl::SQL> package again. 
 
 =head2 update
 

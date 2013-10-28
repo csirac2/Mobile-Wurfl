@@ -1,4 +1,4 @@
--- Don't forget to re-run script/update_sql.pl script if you modify this
+-- Don't forget to re-run script/update_Mobile-Wurfl-SQL.pl script if you modify
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
     name varchar(255) NOT NULL default '',
