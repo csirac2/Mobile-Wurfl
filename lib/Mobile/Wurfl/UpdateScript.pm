@@ -1,13 +1,12 @@
 package Mobile::Wurfl::UpdateScript;
 use strict;
 use warnings;
-use Getopt::Long qw(GetOptionsFromArray);
+use Getopt::Long;
 use Pod::Usage;
 use Pod::Find qw(pod_where);
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 use DBI();
-use Git::Repository();
 use File::Spec();
 use File::Copy();
 use Mobile::Wurfl();
@@ -29,11 +28,14 @@ my %getopts_translation = (
 sub init {
     my ( $self, $opts, $ARGV ) = @_;
     my %getopts;
+    local @ARGV = @{$ARGV};
 
-    GetOptionsFromArray(
-        $ARGV,     \%getopts,    'url|u=s',    'home|h=s',
-        'dsn|d=s', 'username=s', 'password=s', 'verbose|v+',
-        'help|?',  'man',
+    # We used to use GetOptionsFromArray, but that's not exported in
+    # Getopt::Long v2.35 shipped with perl 5.8.8 on Centos 5.0 (long story)...
+    GetOptions(
+        \%getopts,    'url|u=s',    'home|h=s',   'dsn|d=s',
+        'username=s', 'password=s', 'verbose|v+', 'help|?',
+        'man',
       )
       or pod2usage(
         -verbose => 2,
@@ -139,6 +141,10 @@ sub get_free_wurfl_file {
 #   '$xml_path' not found - trying to git-clone it from
 #   '$git_url' into '$git_dir'
 HERE
+        if ( !eval { require Git::Repository } ) {
+            die
+"Git::Repository missing, needed to clone wurfl XML from github. Try to obtain manually, then set WURFL_URL=/path/to/wurfl.xml";
+        }
         Git::Repository->run( clone => $git_url, $git_dir );
         print "#   Copying '$xml_giscript_path' into '$wurfl_home'...\n";
         File::Copy::copy( $xml_giscript_path, $xml_path ) or die $!;

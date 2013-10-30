@@ -29,7 +29,6 @@ use FindBin qw( $Bin );
 use File::Path();
 use DBD::SQLite();
 use DBI();
-use Git::Repository();
 use File::Temp();
 use File::Spec();
 use File::Copy();
@@ -72,7 +71,7 @@ my $wurfl = eval {
     }
     if ( !defined $ENV{WURFL_HOME} ) {
         $opts{wurfl_home} =
-          File::Temp->newdir( 'wurfl_home_XXXX', CLEANUP => 1 );
+          File::Temp::tempdir( 'wurfl_home_XXXX', CLEANUP => 1 );
     }
     if ( !defined $ENV{WURFL_URL} ) {
         $opts{wurfl_url} = get_free_wurfl_file(\%opts);
@@ -143,7 +142,8 @@ for my $cap ( @capabilities )
 # clone it to somewhere where we can get at it.
 sub get_free_wurfl_file {
     my ($opts) = @_;
-    my $wurfl_home = $opts->{wurfl_home} ? $opts->{wurfl_home} : $wurfl->{wurfl_home};
+    my $wurfl_home =
+      $opts->{wurfl_home} ? $opts->{wurfl_home} : $wurfl->{wurfl_home};
     my $xml_fname = '2011-04-24-wurfl.xml';
     my $xml_path;
     my $xml_path_from_t = File::Spec->catfile( $t_path, $xml_fname );
@@ -151,7 +151,8 @@ sub get_free_wurfl_file {
     if ( -e $xml_path_from_t ) {
         $xml_path = File::Spec->catfile( $wurfl_home, $xml_fname );
         print "#   Not cloning, copy '$xml_path_from_t' into '$wurfl_home'..\n";
-        File::Copy::copy( $xml_path_from_t, $xml_path ) or die "Can't copy to $xml_path: $!";
+        File::Copy::copy( $xml_path_from_t, $xml_path )
+          or die "Can't copy to $xml_path: $!";
     }
     else {
         my $git_url = 'git://github.com/bdelacretaz/wurfl';
@@ -166,6 +167,9 @@ sub get_free_wurfl_file {
 #   '$xml_path_from_t' not found - trying to git-clone it from
 #   '$git_url' into '$git_dir'
 HERE
+        if ( !eval { require Git::Repository } ) {
+            BAIL_OUT("Git::Repository missing, needed to clone wurfl XML from github. Try to obtain manually, then set WURFL_URL=/path/to/wurfl.xml or name it t/$xml_fname");
+        }
         Git::Repository->run( clone => $git_url, $git_dir );
         print "#   Copying '$xml_git_path' into '$wurfl_home'...\n";
         File::Copy::copy( $xml_git_path, $xml_path ) or die $!;

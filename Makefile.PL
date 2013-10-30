@@ -28,7 +28,6 @@ my %WriteMakefileArgs = (
     "File::Temp" => 0,
     "FindBin" => 0,
     "Getopt::Long" => 0,
-    "Git::Repository" => 0,
     "IO::Uncompress::Gunzip" => 0,
     "IO::Uncompress::Unzip" => 0,
     "LWP::UserAgent" => 0,
