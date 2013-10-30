@@ -7,7 +7,7 @@ use warnings;
 use DBI;
 use XML::Parser;
 use LWP::UserAgent();
-use HTTP::Date;
+use Date::Parse;
 use File::Spec;
 use File::Basename;
 use IO::Uncompress::Unzip qw(unzip $UnzipError);;
