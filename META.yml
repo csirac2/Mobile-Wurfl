@@ -6,12 +6,8 @@ author:
 build_requires:
   Benchmark: 0
   DBD::SQLite: 0
-  File::Copy: 0
   File::Path: 0
-  FindBin: 0
-  Git::Repository: 0
   Test::More: 0
-  lib: 0
 configure_requires:
   ExtUtils::MakeMaker: 6.30
 dynamic_config: 0
@@ -23,15 +19,22 @@ meta-spec:
 name: Mobile-Wurfl
 requires:
   DBI: 0
+  Date::Parse: 0
   File::Basename: 0
+  File::Copy: 0
   File::Spec: 0
   File::Temp: 0
-  HTTP::Date: 0
+  FindBin: 0
+  Getopt::Long: 0
+  Git::Repository: 0
   IO::Uncompress::Gunzip: 0
   IO::Uncompress::Unzip: 0
   LWP::UserAgent: 0
   POSIX: 0
+  Pod::Find: 0
+  Pod::Usage: 0
   XML::Parser: 0
+  lib: 0
   strict: 0
   warnings: 0
 version: 2.0

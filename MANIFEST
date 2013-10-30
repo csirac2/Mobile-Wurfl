@@ -8,13 +8,13 @@ README
 dist.ini
 lib/Mobile/Wurfl.pm
 lib/Mobile/Wurfl/SQL.pm
+lib/Mobile/Wurfl/UpdateScript.pm
 script/update_Mobile-Wurfl-SQL.pl
 script/update_wurfl.pl
 sql/generic.sql
 sql/mysql.sql
 sql/pg.sql
 sql/sqlite.sql
-t/author-critic.t
 t/release-kwalitee.t
 t/release-pod-coverage.t
 t/wurfl.t
