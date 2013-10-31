@@ -24,7 +24,7 @@ PostgreSQL:
  WURFL_DB_USER=wurfl WURFL_DB_PASS=wurfl WURFL_DSN=DBI:Pg;host=localhost;database=wurfl prove --verbose -I lib/ t/
 =cut
 
-use Test::More qw( no_plan );
+use Test::More tests => 518;
 use FindBin qw( $Bin );
 use File::Path();
 use DBD::SQLite();
