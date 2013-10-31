@@ -95,7 +95,7 @@ SKIP: {
 
             ok( -e $wurfl->{wurfl_url}, "WURFL_URL exists on the filesystem" );
             print "#   Copying '$wurfl->{wurfl_url}' to '$wurfl_path'...\n";
-            File::Copy::copy( $wurfl->{wurfl_urL}, $wurfl_path ) or die $!;
+            File::Copy::copy( $wurfl->{wurfl_url}, $wurfl_path ) or die $!;
             ok( -e $wurfl_path, "WURFL_URL exists in the wurfl_home" );
         }
         ok( $wurfl->rebuild_tables(),
