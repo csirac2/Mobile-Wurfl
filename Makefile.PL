@@ -12,11 +12,11 @@ my %WriteMakefileArgs = (
   "ABSTRACT" => "a perl module interface to WURFL (the Wireless Universal Resource File - L<http://wurfl.sourceforge.net/>).",
   "AUTHOR" => "Ave Wrigley <Ave.Wrigley\@itn.co.uk>, Paul Harvey <csirac2\@yahoo.com.au>",
   "BUILD_REQUIRES" => {
-    "Module::Build" => "0.3601"
+    "Module::Build" => "0.2800"
   },
   "CONFIGURE_REQUIRES" => {
     "ExtUtils::MakeMaker" => "6.30",
-    "Module::Build" => "0.3601"
+    "Module::Build" => "0.2800"
   },
   "DISTNAME" => "Mobile-Wurfl",
   "EXE_FILES" => [],
