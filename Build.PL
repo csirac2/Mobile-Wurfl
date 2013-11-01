@@ -2,16 +2,16 @@
 use strict;
 use warnings;
 
-use Module::Build 0.3601;
+use Module::Build;
 
 
 my %module_build_args = (
   "build_requires" => {
-    "Module::Build" => "0.3601"
+    "Module::Build" => 0,
   },
   "configure_requires" => {
     "ExtUtils::MakeMaker" => "6.30",
-    "Module::Build" => "0.3601"
+    "Module::Build" => 0,
   },
   "dist_abstract" => "a perl module interface to WURFL (the Wireless Universal Resource File - L<http://wurfl.sourceforge.net/>).",
   "dist_author" => [
