@@ -107,7 +107,7 @@ sub proc_xml {
               File::Spec->catfile( $wurfl->{wurfl_home}, $wurfl_fname );
 
             print "#   Copying '$wurfl->{wurfl_url}' to '$wurfl_path'...\n";
-            File::Copy::copy( $wurfl->{wurfl_urL}, $wurfl_path ) or die $!;
+            File::Copy::copy( $wurfl->{wurfl_url}, $wurfl_path ) or die $!;
         }
         print "Rebuilding tables...\n";
         $wurfl->rebuild_tables();
