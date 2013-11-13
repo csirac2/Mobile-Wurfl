@@ -88,7 +88,9 @@ sub _tables_exist
     my %db_tables = map { my $key = $_ =~ /(.*)\.(.*)/ ? $2 : $_ ; $key => 1 } $self->{dbh}->tables();
     for my $table ( keys %tables )
     {
-        return 0 unless $db_tables{$self->{dbh}->quote_identifier($table)};
+        my $quoted_table = $self->{dbh}->quote_identifier($table);
+
+        return 0 unless $db_tables{$table} or $db_tables{$quoted_table};
 
     }
     return 1;

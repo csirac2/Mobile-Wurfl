@@ -1,23 +1,23 @@
 -- Don't forget to re-run script/update_Mobile-Wurfl-SQL.pl script if you modify
 DROP TABLE IF EXISTS capability;
 CREATE TABLE capability (
-    name char(255) NOT NULL default '',
-    value char(255) default '',
-    groupid char(255) NOT NULL default '',
-    deviceid char(255) NOT NULL default '',
-    ts DATETIME default CURRENT_TIMESTAMP
+    name VARCHAR(255) NOT NULL DEFAULT '',
+    value VARCHAR(255) DEFAULT '',
+    groupid VARCHAR(255) NOT NULL DEFAULT '',
+    deviceid VARCHAR(255) NOT NULL DEFAULT '',
+    ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS groupid ON capability (groupid);
-CREATE INDEX IF NOT EXISTS name_deviceid ON capability (name,deviceid);
+CREATE INDEX groupid ON capability (groupid);
+CREATE INDEX name_deviceid ON capability (name, deviceid);
 DROP TABLE IF EXISTS device;
 CREATE TABLE device (
-    user_agent varchar(255) NOT NULL default '',
-    actual_device_root char(255),
-    id char(255) NOT NULL default '',
-    fall_back char(255) NOT NULL default '',
-    ts DATETIME default CURRENT_TIMESTAMP
+    user_agent VARCHAR(255) NOT NULL DEFAULT '',
+    actual_device_root VARCHAR(255),
+    id VARCHAR(255) NOT NULL DEFAULT '',
+    fall_back VARCHAR(255) NOT NULL DEFAULT '',
+    ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS user_agent ON device (user_agent);
-CREATE INDEX IF NOT EXISTS user_agent_idx
+CREATE INDEX id ON device (id);
+CREATE INDEX user_agent ON device (user_agent);
+CREATE INDEX user_agent_idx
     ON device (user_agent varchar_pattern_ops);
-CREATE INDEX IF NOT EXISTS id ON device (id);
